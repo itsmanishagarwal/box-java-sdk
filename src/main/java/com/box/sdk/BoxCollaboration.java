@@ -18,24 +18,29 @@ import com.eclipsesource.json.JsonValue;
  * meaning that the compiler won't force you to handle it) if an error occurs. If you wish to implement custom error
  * handling for errors related to the Box REST API, you should capture this exception explicitly.</p>
  */
+@BoxResourceType("collaboration")
 public class BoxCollaboration extends BoxResource {
     private static final URLTemplate COLLABORATIONS_URL_TEMPLATE = new URLTemplate("collaborations");
     private static final URLTemplate PENDING_COLLABORATIONS_URL = new URLTemplate("collaborations?status=pending");
     private static final URLTemplate COLLABORATION_URL_TEMPLATE = new URLTemplate("collaborations/%s");
+    private static final URLTemplate GET_ALL_FILE_COLLABORATIONS_URL = new URLTemplate("files/%s/collaborations/");
 
     /**
      * Constructs a BoxCollaboration for a collaboration with a given ID.
-     * @param  api the API connection to be used by the collaboration.
-     * @param  id  the ID of the collaboration.
+     *
+     * @param api the API connection to be used by the collaboration.
+     * @param id  the ID of the collaboration.
      */
     public BoxCollaboration(BoxAPIConnection api, String id) {
         super(api, id);
     }
 
+
     /**
      * Gets all pending collaboration invites for the current user.
-     * @param  api the API connection to use.
-     * @return     a collection of pending collaboration infos.
+     *
+     * @param api the API connection to use.
+     * @return a collection of pending collaboration infos.
      */
     public static Collection<Info> getPendingCollaborations(BoxAPIConnection api) {
         URL url = PENDING_COLLABORATIONS_URL.build(api.getBaseURL());
@@ -59,6 +64,7 @@ public class BoxCollaboration extends BoxResource {
 
     /**
      * Gets information about this collaboration.
+     *
      * @return info about this collaboration.
      */
     public Info getInfo() {
@@ -73,6 +79,7 @@ public class BoxCollaboration extends BoxResource {
 
     /**
      * Updates the information about this collaboration with any info fields that have been modified locally.
+     *
      * @param info the updated info.
      */
     public void updateInfo(Info info) {
@@ -81,9 +88,13 @@ public class BoxCollaboration extends BoxResource {
 
         BoxJSONRequest request = new BoxJSONRequest(api, url, "PUT");
         request.setBody(info.getPendingChanges());
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
-        info.update(jsonObject);
+        BoxAPIResponse boxAPIResponse = request.send();
+
+        if (boxAPIResponse instanceof BoxJSONResponse) {
+            BoxJSONResponse response = (BoxJSONResponse) boxAPIResponse;
+            JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
+            info.update(jsonObject);
+        }
     }
 
     /**
@@ -111,6 +122,7 @@ public class BoxCollaboration extends BoxResource {
         private Role role;
         private Date acknowledgedAt;
         private BoxFolder.Info item;
+        private BoxFile.Info fileItem;
 
         /**
          * Constructs an empty Info object.
@@ -121,7 +133,8 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -133,6 +146,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the user who created the collaboration.
+         *
          * @return the user who created the collaboration.
          */
         public BoxUser.Info getCreatedBy() {
@@ -141,6 +155,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the time the collaboration was created.
+         *
          * @return the time the collaboration was created.
          */
         public Date getCreatedAt() {
@@ -149,6 +164,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the time the collaboration was last modified.
+         *
          * @return the time the collaboration was last modified.
          */
         public Date getModifiedAt() {
@@ -157,6 +173,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the time the collaboration will expire.
+         *
          * @return the time the collaboration will expire.
          */
         public Date getExpiresAt() {
@@ -165,6 +182,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the status of the collaboration.
+         *
          * @return the status of the collaboration.
          */
         public Status getStatus() {
@@ -173,6 +191,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Sets the status of the collaboration in order to accept or reject the collaboration if it's pending.
+         *
          * @param status the new status of the collaboration.
          */
         public void setStatus(Status status) {
@@ -182,6 +201,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the collaborator who this collaboration applies to.
+         *
          * @return the collaborator who this collaboration applies to.
          */
         public BoxCollaborator.Info getAccessibleBy() {
@@ -190,6 +210,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the level of access the collaborator has.
+         *
          * @return the level of access the collaborator has.
          */
         public Role getRole() {
@@ -198,6 +219,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Sets the level of access the collaborator has.
+         *
          * @param role the new level of access to give the collaborator.
          */
         public void setRole(Role role) {
@@ -207,6 +229,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the time the collaboration's status was changed.
+         *
          * @return the time the collaboration's status was changed.
          */
         public Date getAcknowledgedAt() {
@@ -215,6 +238,7 @@ public class BoxCollaboration extends BoxResource {
 
         /**
          * Gets the folder the collaboration is related to.
+         *
          * @return the folder the collaboration is related to.
          */
         public BoxFolder.Info getItem() {
@@ -287,7 +311,7 @@ public class BoxCollaboration extends BoxResource {
         private void updateAccessibleBy(JsonObject json) {
             String type = json.get("type").asString();
             if ((type.equals("user") && this.accessibleBy instanceof BoxUser.Info)
-                || (type.equals("group") && this.accessibleBy instanceof BoxGroup.Info)) {
+                    || (type.equals("group") && this.accessibleBy instanceof BoxGroup.Info)) {
 
                 this.accessibleBy.update(json);
             } else {
@@ -340,28 +364,28 @@ public class BoxCollaboration extends BoxResource {
          * download, upload, edit, delete, copy, move, rename, generate shared links, make comments, assign tasks,
          * create tags, and invite/remove collaborators. They will not be able to delete or move root level folders.
          */
-        EDITOR ("editor"),
+        EDITOR("editor"),
 
         /**
          * The viewer role has full read access to a folder. Once invited to a folder, they will be able to preview,
          * download, make comments, and generate shared links.  They will not be able to add tags, invite new
          * collaborators, upload, edit, or delete items in the folder.
          */
-        VIEWER ("viewer"),
+        VIEWER("viewer"),
 
         /**
          * The previewer role has limited read access to a folder. They will only be able to preview the items in the
          * folder using the integrated content viewer. They will not be able to share, upload, edit, or delete any
          * content. This role is only available to enterprise accounts.
          */
-        PREVIEWER ("previewer"),
+        PREVIEWER("previewer"),
 
         /**
          * The uploader has limited write access to a folder. They will only be able to upload and see the names of the
          * items in a folder. They will not able to download or view any content. This role is only available to
          * enterprise accounts.
          */
-        UPLOADER ("uploader"),
+        UPLOADER("uploader"),
 
         /**
          * The previewer-uploader role is a combination of previewer and uploader. A user with this access level will be
@@ -369,7 +393,7 @@ public class BoxCollaboration extends BoxResource {
          * not be able to download, edit, or share, items in the folder. This role is only available to enterprise
          * accounts.
          */
-        PREVIEWER_UPLOADER ("previewer uploader"),
+        PREVIEWER_UPLOADER("previewer uploader"),
 
         /**
          * The viewer-uploader role is a combination of viewer and uploader. A viewer-uploader has full read access to a
@@ -377,7 +401,7 @@ public class BoxCollaboration extends BoxResource {
          * upload content to the folder. They will not be able to add tags, invite new collaborators, edit, or delete
          * items in the folder. This role is only available to enterprise accounts.
          */
-        VIEWER_UPLOADER ("viewer uploader"),
+        VIEWER_UPLOADER("viewer uploader"),
 
         /**
          * The co-owner role has all of the functional read/write access that an editor does. This permission level has
@@ -386,14 +410,14 @@ public class BoxCollaboration extends BoxResource {
          * manipulate the owner of the folder or transfer ownership to another user. This role is only available to
          * enterprise accounts.
          */
-        CO_OWNER ("co-owner"),
+        CO_OWNER("co-owner"),
 
         /**
          * The owner role has all of the functional capabilities of a co-owner. However, they will be able to manipulate
          * the owner of the folder or transfer ownership to another user. This role is only available to enterprise
          * accounts.
          */
-        OWNER ("owner");
+        OWNER("owner");
 
         private final String jsonValue;
 
@@ -426,5 +450,32 @@ public class BoxCollaboration extends BoxResource {
         String toJSONString() {
             return this.jsonValue;
         }
+    }
+
+    /**
+     * Used to retrieve all collaborations associated with the item.
+     *
+     * @param api   BoxAPIConnection from the associated file.
+     * @param fileID   FileID of the assocyaed file
+     * @param pageSize   page size for server pages of the Iterable
+     * @param fields the optional fields to retrieve.
+     * @return An iterable of BoxCollaboration.Info instances associated with the item.
+     */
+    public static BoxResourceIterable<Info> getAllFileCollaborations(final BoxAPIConnection api, String fileID,
+                                                                           int pageSize, String... fields) {
+        QueryStringBuilder builder = new QueryStringBuilder();
+        if (fields.length > 0) {
+            builder.appendParam("fields", fields);
+        }
+        return new BoxResourceIterable<BoxCollaboration.Info>(
+                api, GET_ALL_FILE_COLLABORATIONS_URL.buildWithQuery(api.getBaseURL(), builder.toString(), fileID),
+                pageSize) {
+
+            @Override
+            protected BoxCollaboration.Info factory(JsonObject jsonObject) {
+                String id = jsonObject.get("id").asString();
+                return new BoxCollaboration(api, id).new Info(jsonObject);
+            }
+        };
     }
 }

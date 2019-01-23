@@ -8,7 +8,6 @@ import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
 
-
 /**
  * The MetadataTemplate class represents the Box metadata template object.
  * Templates allow the metadata service to provide a multitude of services,
@@ -21,19 +20,24 @@ public class MetadataTemplate extends BoxJSONObject {
     /**
      * @see #getMetadataTemplate(BoxAPIConnection)
      */
-    private static final URLTemplate METADATA_TEMPLATE_URL_TEMPLATE
+    public static final URLTemplate METADATA_TEMPLATE_URL_TEMPLATE
         = new URLTemplate("metadata_templates/%s/%s/schema");
+
+    /**
+     * @see #getMetadataTemplateByID(BoxAPIConnection, String)
+     */
+    public static final URLTemplate METADATA_TEMPLATE_BY_ID_URL_TEMPLATE = new URLTemplate("metadata_templates/%s");
 
     /**
      * @see #createMetadataTemplate(BoxAPIConnection, String, String, String, boolean, List)
      */
-    private static final URLTemplate METADATA_TEMPLATE_SCHEMA_URL_TEMPLATE
+    public static final URLTemplate METADATA_TEMPLATE_SCHEMA_URL_TEMPLATE
         = new URLTemplate("metadata_templates/schema");
 
     /**
      * @see #getEnterpriseMetadataTemplates(String, int, BoxAPIConnection, String...)
      */
-    private static final URLTemplate ENTERPRISE_METADATA_URL_TEMPLATE = new URLTemplate("metadata_templates/%s");
+    public static final URLTemplate ENTERPRISE_METADATA_URL_TEMPLATE = new URLTemplate("metadata_templates/%s");
 
     /**
      * Default metadata type to be used in query.
@@ -54,6 +58,11 @@ public class MetadataTemplate extends BoxJSONObject {
      * Default number of entries per page.
      */
     private static final int DEFAULT_ENTRIES_LIMIT = 100;
+
+    /**
+     * @see #getID()
+     */
+    private String id;
 
     /**
      * @see #getTemplateKey()
@@ -101,6 +110,14 @@ public class MetadataTemplate extends BoxJSONObject {
      */
     MetadataTemplate(JsonObject jsonObject) {
         super(jsonObject);
+    }
+
+    /**
+     * Gets the ID of the template.
+     * @return the template ID.
+     */
+    public String getID() {
+        return this.id;
     }
 
     /**
@@ -163,6 +180,8 @@ public class MetadataTemplate extends BoxJSONObject {
             for (JsonValue field: value.asArray()) {
                 this.fields.add(new Field(field.asObject()));
             }
+        } else if (memberName.equals("id")) {
+            this.id = value.asString();
         }
     }
 
@@ -276,6 +295,21 @@ public class MetadataTemplate extends BoxJSONObject {
     }
 
     /**
+     * Deletes the schema of an existing metadata template.
+     *
+     * @param api the API connection to be used
+     * @param scope the scope of the object
+     * @param template Unique identifier of the template
+     */
+    public static void deleteMetadataTemplate(BoxAPIConnection api, String scope, String template) {
+
+        URL url = METADATA_TEMPLATE_URL_TEMPLATE.build(api.getBaseURL(), scope, template);
+        BoxJSONRequest request = new BoxJSONRequest(api, url, "DELETE");
+
+        request.send();
+    }
+
+    /**
      * Gets the JsonObject representation of the Field Operation.
      * @param fieldOperation represents the template update operation
      * @return the json object
@@ -344,6 +378,21 @@ public class MetadataTemplate extends BoxJSONObject {
             jsonObject.add("enumOptionKeys", getJsonArray(enumOptionKeys));
         }
 
+        String enumOptionKey = fieldOperation.getEnumOptionKey();
+        if (enumOptionKey != null) {
+            jsonObject.add("enumOptionKey", enumOptionKey);
+        }
+
+        String multiSelectOptionKey = fieldOperation.getMultiSelectOptionKey();
+        if (multiSelectOptionKey != null) {
+            jsonObject.add("multiSelectOptionKey", multiSelectOptionKey);
+        }
+
+        List<String> multiSelectOptionKeys = fieldOperation.getMultiSelectOptionKeys();
+        if (multiSelectOptionKeys != null) {
+            jsonObject.add("multiSelectOptionKeys", getJsonArray(multiSelectOptionKeys));
+        }
+
         return jsonObject;
     }
 
@@ -397,6 +446,20 @@ public class MetadataTemplate extends BoxJSONObject {
         }
         URL url = METADATA_TEMPLATE_URL_TEMPLATE.buildWithQuery(
                 api.getBaseURL(), builder.toString(), scope, templateName);
+        BoxAPIRequest request = new BoxAPIRequest(api, url, "GET");
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        return new MetadataTemplate(response.getJSON());
+    }
+
+    /**
+     * Geta the specified metadata template by its ID.
+     * @param api the API connection to be used.
+     * @param templateID the ID of the template to get.
+     * @return the metadata template object.
+     */
+    public static MetadataTemplate getMetadataTemplateByID(BoxAPIConnection api, String templateID) {
+
+        URL url = METADATA_TEMPLATE_BY_ID_URL_TEMPLATE.build(api.getBaseURL(), templateID);
         BoxAPIRequest request = new BoxAPIRequest(api, url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         return new MetadataTemplate(response.getJSON());
@@ -464,6 +527,11 @@ public class MetadataTemplate extends BoxJSONObject {
     public static class Field extends BoxJSONObject {
 
         /**
+         * @see #getID()
+         */
+        private String id;
+
+        /**
          * @see #getType()
          */
         private String type;
@@ -489,9 +557,9 @@ public class MetadataTemplate extends BoxJSONObject {
         private String description;
 
         /**
-         * @see #getOptions()
+         * @see #getOptionsObject()
          */
-        private List<String> options;
+        private List<Option> options;
 
         /**
          * Constructs an empty metadata template.
@@ -514,6 +582,14 @@ public class MetadataTemplate extends BoxJSONObject {
          */
         Field(JsonObject jsonObject) {
             super(jsonObject);
+        }
+
+        /**
+         * Gets the ID of the template field.
+         * @return the template field ID.
+         */
+        public String getID() {
+            return this.id;
         }
 
         /**
@@ -601,6 +677,21 @@ public class MetadataTemplate extends BoxJSONObject {
          * @return list of possible options for enum type of the field.
          */
         public List<String> getOptions() {
+            if (this.options == null) {
+                return null;
+            }
+            List<String> optionsList = new ArrayList<String>();
+            for (Option option : this.options) {
+                optionsList.add(option.getKey());
+            }
+            return optionsList;
+        }
+
+        /**
+         * Gets list of possible options for options type of the field.
+         * @return list of possible options for option type of the field.
+         */
+        public List<Option> getOptionsObjects() {
             return this.options;
         }
 
@@ -609,7 +700,17 @@ public class MetadataTemplate extends BoxJSONObject {
          * @param options list of possible options for enum type of the field.
          */
         public void setOptions(List<String> options) {
-            this.options = options;
+            if (options == null) {
+                this.options = null;
+            }
+            List<Option> optionList = new ArrayList<Option>();
+            for (String key : options) {
+                JsonObject optionObject = new JsonObject();
+                optionObject.add("key", key);
+                Option newOption = new Option(optionObject);
+                optionList.add(newOption);
+            }
+            this.options = optionList;
         }
 
         /**
@@ -630,10 +731,75 @@ public class MetadataTemplate extends BoxJSONObject {
             } else if (memberName.equals("description")) {
                 this.description = value.asString();
             } else if (memberName.equals("options")) {
-                this.options = new ArrayList<String>();
-                for (JsonValue key: value.asArray()) {
-                    this.options.add(key.asObject().get("key").asString());
+                this.options = new ArrayList<Option>();
+                for (JsonValue option : value.asArray()) {
+                    this.options.add(new Option(option.asObject()));
                 }
+            } else if (memberName.equals("id")) {
+                this.id = value.asString();
+            }
+        }
+    }
+
+    /**
+     * Class contains information about the metadata template option.
+     */
+    public static class Option extends BoxJSONObject {
+        /**
+         * @see #getID()
+         */
+        private String id;
+         /**
+         * @see #getKey()
+         */
+        private String key;
+         /**
+         * Constructs an empty metadata template.
+         */
+        public Option() {
+            super();
+        }
+         /**
+         * Constructs a metadate template option from a JSON string.
+         * @param json the json encoded metadata template option.
+         */
+        public Option(String json) {
+            super(json);
+        }
+
+         /**
+         * Constructs a metadate template option from a JSON object.
+         * @param jsonObject the json encoded metadate template option.
+         */
+        Option(JsonObject jsonObject) {
+            super(jsonObject);
+        }
+         /**
+         * Gets the ID of the template field.
+         * @return the template field ID.
+         */
+        public String getID() {
+            return this.id;
+        }
+         /**
+         * Gets the key of the field.
+         * @return the key of the field.
+         */
+        public String getKey() {
+            return this.key;
+        }
+
+        /**
+         * {@inheritDoc}
+         */
+        @Override
+        void parseJSONMember(JsonObject.Member member) {
+            JsonValue value = member.getValue();
+            String memberName = member.getName();
+            if (memberName.equals("id")) {
+                this.id = value.asString();
+            } else if (memberName.equals("key")) {
+                this.key = value.asString();
             }
         }
     }
@@ -642,8 +808,11 @@ public class MetadataTemplate extends BoxJSONObject {
      * Posssible operations that can be performed in a Metadata template.
      *  <ul>
      *      <li>Add an enum option</li>
+     *      <li>Edit an enum option</li>
+     *      <li>Remove an enum option</li>
      *      <li>Add a field</li>
      *      <li>Edit a field</li>
+     *      <li>Remove a field</li>
      *      <li>Edit template</li>
      *      <li>Reorder the enum option</li>
      *      <li>Reorder the field list</li>
@@ -656,6 +825,9 @@ public class MetadataTemplate extends BoxJSONObject {
         private String fieldKey;
         private List<String> fieldKeys;
         private List<String> enumOptionKeys;
+        private String enumOptionKey;
+        private String multiSelectOptionKey;
+        private List<String> multiSelectOptionKeys;
 
         /**
          * Constructs an empty FieldOperation.
@@ -761,6 +933,54 @@ public class MetadataTemplate extends BoxJSONObject {
         }
 
         /**
+         * Gets the enum option key.
+         * @return the enum option key
+         */
+        public String getEnumOptionKey() {
+            return this.enumOptionKey;
+        }
+
+        /**
+         * Sets the enum option key.
+         * @param enumOptionKey the enum option key
+         */
+        public void setEnumOptionKey(String enumOptionKey) {
+            this.enumOptionKey = enumOptionKey;
+        }
+
+        /**
+         * Gets the multi-select option key.
+         * @return the key.
+         */
+        public String getMultiSelectOptionKey() {
+            return this.multiSelectOptionKey;
+        }
+
+        /**
+         * Sets the multi-select option key.
+         * @param key the key.
+         */
+        public void setMultiSelectOptionKey(String key) {
+            this.multiSelectOptionKey = key;
+        }
+
+        /**
+         * Gets the list of multiselect option keys.
+         * @return the list of keys.
+         */
+        public List<String> getMultiSelectOptionKeys() {
+            return this.multiSelectOptionKeys;
+        }
+
+        /**
+         * Sets the multi-select option keys.
+         * @param keys the list of keys.
+         */
+        public void setMultiSelectOptionKeys(List<String> keys) {
+            this.multiSelectOptionKeys = keys;
+        }
+
+        /**
          * {@inheritDoc}
          */
         @Override
@@ -795,6 +1015,15 @@ public class MetadataTemplate extends BoxJSONObject {
                 for (JsonValue jsonValue: array) {
                     this.enumOptionKeys.add(jsonValue.asString());
                 }
+            } else if (memberName.equals("enumOptionKey")) {
+                this.enumOptionKey = value.asString();
+            } else if (memberName.equals("multiSelectOptionKey")) {
+                this.multiSelectOptionKey = value.asString();
+            } else if (memberName.equals("multiSelectOptionKeys")) {
+                this.multiSelectOptionKeys = new ArrayList<String>();
+                for (JsonValue key : value.asArray()) {
+                    this.multiSelectOptionKeys.add(key.asString());
+                }
             }
         }
     }
@@ -810,6 +1039,16 @@ public class MetadataTemplate extends BoxJSONObject {
         addEnumOption,
 
         /**
+         * Edits the enum option.
+         */
+        editEnumOption,
+
+        /**
+         * Removes the specified enum option from the specified enum field.
+         */
+        removeEnumOption,
+
+        /**
          * Adds a field at the end of the field list for the template.
          */
         addField,
@@ -818,6 +1057,11 @@ public class MetadataTemplate extends BoxJSONObject {
          * Edits any number of the base properties of a field: displayName, hidden, description.
          */
         editField,
+
+        /**
+         * Removes the specified field from the template.
+         */
+        removeField,
 
         /**
          * Edits any number of the base properties of a template: displayName, hidden.
@@ -832,6 +1076,26 @@ public class MetadataTemplate extends BoxJSONObject {
         /**
          * Reorders the field list to match the requested field list.
          */
-        reorderFields
+        reorderFields,
+
+        /**
+         * Adds a new option to a multiselect field.
+         */
+        addMultiSelectOption,
+
+        /**
+         * Edits an existing option in a multiselect field.
+         */
+        editMultiSelectOption,
+
+        /**
+         * Removes an option from a multiselect field.
+         */
+        removeMultiSelectOption,
+
+        /**
+         * Changes the display order of options in a multiselect field.
+         */
+        reorderMultiSelectOptions
     }
 }

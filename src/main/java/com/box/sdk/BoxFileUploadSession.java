@@ -25,13 +25,13 @@ import com.eclipsesource.json.JsonValue;
  * retry upload of a single part instead of the entire file.  Parts can also be uploaded in parallel allowing
  * for potential performance improvement.
  */
-@BoxResourceType("upload-session")
+@BoxResourceType("upload_session")
 public class BoxFileUploadSession extends BoxResource {
 
     private static final String DIGEST_HEADER_PREFIX_SHA = "sha=";
     private static final String DIGEST_ALGORITHM_SHA1 = "SHA1";
 
-    private static final String MARKER_QUERY_STRING = "marker";
+    private static final String OFFSET_QUERY_STRING = "offset";
     private static final String LIMIT_QUERY_STRING = "limit";
 
     private Info sessionInfo;
@@ -53,7 +53,7 @@ public class BoxFileUploadSession extends BoxResource {
         private Date sessionExpiresAt;
         private String uploadSessionId;
         private Endpoints sessionEndpoints;
-        private long partSize;
+        private int partSize;
         private int totalParts;
         private int partsProcessed;
 
@@ -118,7 +118,7 @@ public class BoxFileUploadSession extends BoxResource {
          * Returns the size of the each part. Only the last part of the file can be lessor than this value.
          * @return the part size.
          */
-        public long getPartSize() {
+        public int getPartSize() {
             return this.partSize;
         }
 
@@ -134,10 +134,10 @@ public class BoxFileUploadSession extends BoxResource {
                 } catch (ParseException pe) {
                     assert false : "A ParseException indicates a bug in the SDK.";
                 }
-            } else if (memberName.equals("upload_session_id")) {
+            } else if (memberName.equals("id")) {
                 this.uploadSessionId = value.asString();
             } else if (memberName.equals("part_size")) {
-                this.partSize = Double.valueOf(value.toString()).longValue();
+                this.partSize = Integer.valueOf(value.toString());
             } else if (memberName.equals("session_endpoints")) {
                 this.sessionEndpoints = new Endpoints(value.asObject());
             } else if (memberName.equals("total_parts")) {
@@ -230,8 +230,7 @@ public class BoxFileUploadSession extends BoxResource {
     }
 
     /**
-     * Uploads a chunk of a file to an open upload session.
-     * @param partId a unique 8 character hex number that identifies the part.
+     * Uploads chunk of a stream to an open upload session.
      * @param stream the stream that is used to read the chunck using the offset and part size.
      * @param offset the byte position where the chunk begins in the file.
      * @param partSize the part size returned as part of the upload session instance creation.
@@ -239,22 +238,40 @@ public class BoxFileUploadSession extends BoxResource {
      * @param totalSizeOfFile The total size of the file being uploaded.
      * @return the part instance that contains the part id, offset and part size.
      */
-    public BoxFileUploadSessionPart uploadPart(String partId, InputStream stream, long offset, long partSize,
+    public BoxFileUploadSessionPart uploadPart(InputStream stream, long offset, int partSize,
                                                long totalSizeOfFile) {
 
         URL uploadPartURL = this.sessionInfo.getSessionEndpoints().getUploadPartEndpoint();
 
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), uploadPartURL, HttpMethod.PUT);
         request.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_OCTET_STREAM);
-        request.addHeader(HttpHeaders.X_BOX_PART_ID, partId);
 
         //Read the partSize bytes from the stream
-        byte[] bytes = new byte[(int) partSize];
+        byte[] bytes = new byte[partSize];
         try {
             stream.read(bytes);
         } catch (IOException ioe) {
             throw new BoxAPIException("Reading data from stream failed.", ioe);
         }
+
+        return this.uploadPart(bytes, offset, partSize, totalSizeOfFile);
+    }
+
+    /**
+     * Uploads bytes to an open upload session.
+     * @param data data
+     * @param offset the byte position where the chunk begins in the file.
+     * @param partSize the part size returned as part of the upload session instance creation.
+     *                 Only the last chunk can have a lesser value.
+     * @param totalSizeOfFile The total size of the file being uploaded.
+     * @return the part instance that contains the part id, offset and part size.
+     */
+    public BoxFileUploadSessionPart uploadPart(byte[] data, long offset, int partSize,
+                                               long totalSizeOfFile) {
+        URL uploadPartURL = this.sessionInfo.getSessionEndpoints().getUploadPartEndpoint();
+
+        BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), uploadPartURL, HttpMethod.PUT);
+        request.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_OCTET_STREAM);
 
         MessageDigest digestInstance = null;
         try {
@@ -264,7 +281,7 @@ public class BoxFileUploadSession extends BoxResource {
         }
 
         //Creates the digest using SHA1 algorithm. Then encodes the bytes using Base64.
-        byte[] digestBytes = digestInstance.digest(bytes);
+        byte[] digestBytes = digestInstance.digest(data);
         String digest = Base64.encode(digestBytes);
         request.addHeader(HttpHeaders.DIGEST, DIGEST_HEADER_PREFIX_SHA + digest);
         //Content-Range: bytes offset-part/totalSize
@@ -272,31 +289,25 @@ public class BoxFileUploadSession extends BoxResource {
                 "bytes " + offset + "-" + (offset + partSize - 1) + "/" + totalSizeOfFile);
 
         //Creates the body
-        request.setBody(new ByteArrayInputStream(bytes));
-        request.send();
-
-        BoxFileUploadSessionPart part = new BoxFileUploadSessionPart();
-        part.setPartId(partId);
-        part.setOffset(offset);
-        part.setSize(partSize);
-
+        request.setBody(new ByteArrayInputStream(data));
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
+        BoxFileUploadSessionPart part = new BoxFileUploadSessionPart((JsonObject) jsonObject.get("part"));
         return part;
     }
 
     /**
      * Returns a list of all parts that have been uploaded to an upload session.
-     * @param marker paging marker for the list of parts.
+     * @param offset paging marker for the list of parts.
      * @param limit maximum number of parts to return.
      * @return the list of parts.
      */
-    public BoxFileUploadSessionPartList listParts(String marker, int limit) {
+    public BoxFileUploadSessionPartList listParts(int offset, int limit) {
         URL listPartsURL = this.sessionInfo.getSessionEndpoints().getListPartsEndpoint();
         URLTemplate template = new URLTemplate(listPartsURL.toString());
 
         QueryStringBuilder builder = new QueryStringBuilder();
-        if (marker != null) {
-            builder.appendParam(MARKER_QUERY_STRING, marker);
-        }
+        builder.appendParam(OFFSET_QUERY_STRING, offset);
         String queryString = builder.appendParam(LIMIT_QUERY_STRING, limit).toString();
 
         //Template is initalized with the full URL. So empty string for the path.

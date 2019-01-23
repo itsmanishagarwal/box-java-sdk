@@ -4,7 +4,7 @@ package com.box.sdk;
  * This API connection uses a shared link (along with an optional password) to authenticate with the Box API. It wraps a
  * preexisting BoxAPIConnection in order to provide additional access to items that are accessible with a shared link.
  */
-class SharedLinkAPIConnection extends BoxAPIConnection {
+public class SharedLinkAPIConnection extends BoxAPIConnection {
     private final BoxAPIConnection wrappedConnection;
     private final String sharedLink;
     private final String sharedLinkPassword;
@@ -14,7 +14,9 @@ class SharedLinkAPIConnection extends BoxAPIConnection {
     }
 
     SharedLinkAPIConnection(BoxAPIConnection connection, String sharedLink, String sharedLinkPassword) {
-        super(null);
+        //this is a hack to maintain backward compatibility and to prevent confusing the compiler
+        //between two possible BoxApiConnection constructors for super(null)
+        super("");
 
         this.wrappedConnection = connection;
         this.sharedLink = sharedLink;

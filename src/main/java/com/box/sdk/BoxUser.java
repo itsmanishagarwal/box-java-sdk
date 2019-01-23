@@ -3,8 +3,10 @@ package com.box.sdk;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
@@ -27,15 +29,36 @@ public class BoxUser extends BoxCollaborator {
         "language", "timezone", "space_amount", "space_used", "max_upload_size", "tracking_codes",
         "can_see_managed_users", "is_sync_enabled", "is_external_collab_restricted", "status", "job_title", "phone",
         "address", "avatar_url", "is_exempt_from_device_limits", "is_exempt_from_login_verification", "enterprise",
-        "my_tags", "hostname", "is_platform_access_only"};
+        "my_tags", "hostname", "is_platform_access_only", "external_app_user_id"};
 
-    private static final URLTemplate USER_URL_TEMPLATE = new URLTemplate("users/%s");
-    private static final URLTemplate GET_ME_URL = new URLTemplate("users/me");
-    private static final URLTemplate USERS_URL_TEMPLATE = new URLTemplate("users");
-    private static final URLTemplate USER_MEMBERSHIPS_URL_TEMPLATE = new URLTemplate("users/%s/memberships");
-    private static final URLTemplate EMAIL_ALIAS_URL_TEMPLATE = new URLTemplate("users/%s/email_aliases/%s");
-    private static final URLTemplate EMAIL_ALIASES_URL_TEMPLATE = new URLTemplate("users/%s/email_aliases");
-    private static final URLTemplate MOVE_FOLDER_TO_USER_TEMPLATE = new URLTemplate("users/%s/folders/%s");
+    /**
+     * User URL Template.
+     */
+    public static final URLTemplate USER_URL_TEMPLATE = new URLTemplate("users/%s");
+    /**
+     * Get Me URL Template.
+     */
+    public static final URLTemplate GET_ME_URL = new URLTemplate("users/me");
+    /**
+     * Users URL Template.
+     */
+    public static final URLTemplate USERS_URL_TEMPLATE = new URLTemplate("users");
+    /**
+     * User Memberships URL Template.
+     */
+    public static final URLTemplate USER_MEMBERSHIPS_URL_TEMPLATE = new URLTemplate("users/%s/memberships");
+    /**
+     * E-Mail Alias URL Template.
+     */
+    public static final URLTemplate EMAIL_ALIAS_URL_TEMPLATE = new URLTemplate("users/%s/email_aliases/%s");
+    /**
+     * E-Mail Aliases URL Template.
+     */
+    public static final URLTemplate EMAIL_ALIASES_URL_TEMPLATE = new URLTemplate("users/%s/email_aliases");
+    /**
+     * Move Folder To User Template.
+     */
+    public static final URLTemplate MOVE_FOLDER_TO_USER_TEMPLATE = new URLTemplate("users/%s/folders/%s");
 
     /**
      * Constructs a BoxUser for a user with a given ID.
@@ -116,6 +139,7 @@ public class BoxUser extends BoxCollaborator {
             requestJSON.add("is_exempt_from_device_limits", params.getIsExemptFromDeviceLimits());
             requestJSON.add("is_exempt_from_login_verification", params.getIsExemptFromLoginVerification());
             requestJSON.add("is_platform_access_only", params.getIsPlatformAccessOnly());
+            requestJSON.add("external_app_user_id", params.getExternalAppUserId());
         }
 
         URL url = USERS_URL_TEMPLATE.build(api.getBaseURL());
@@ -161,7 +185,7 @@ public class BoxUser extends BoxCollaborator {
      */
     public static Iterable<BoxUser.Info> getAllEnterpriseUsers(final BoxAPIConnection api, final String filterTerm,
             final String... fields) {
-        return getUsersInfoForType(api, filterTerm, null, fields);
+        return getUsersInfoForType(api, filterTerm, null, null, fields);
     }
 
     /**
@@ -177,7 +201,7 @@ public class BoxUser extends BoxCollaborator {
      */
     public static Iterable<BoxUser.Info> getExternalUsers(final BoxAPIConnection api, final String filterTerm,
           final String... fields) {
-        return getUsersInfoForType(api, filterTerm, "external", fields);
+        return getUsersInfoForType(api, filterTerm, "external", null, fields);
     }
 
     /**
@@ -193,21 +217,34 @@ public class BoxUser extends BoxCollaborator {
      */
     public static Iterable<BoxUser.Info> getAllEnterpriseOrExternalUsers(final BoxAPIConnection api,
            final String filterTerm, final String... fields) {
-        return getUsersInfoForType(api, filterTerm, "all", fields);
+        return getUsersInfoForType(api, filterTerm, "all", null, fields);
+    }
+
+    /**
+     * Gets any app users that has an exact match with the externalAppUserId term.
+     * @param api                 the API connection to be used when retrieving the users.
+     * @param externalAppUserId    the external app user id that has been set for app user
+     * @param fields               the fields to retrieve. Leave this out for the standard fields.
+     * @return an iterable containing users matching the given email
+     */
+    public static Iterable<BoxUser.Info> getAppUsersByExternalAppUserID(final BoxAPIConnection api,
+           final String externalAppUserId, final String... fields) {
+        return getUsersInfoForType(api, null, null, externalAppUserId, fields);
     }
 
     /**
      * Helper method to abstract out the common logic from the various users methods.
      *
-     * @param  api        the API connection to be used when retrieving the users.
-     * @param filterTerm    The filter term to lookup users by (login for external, login or name for managed)
-     * @param userType      The type of users we want to search with this request.
-     *                      Valid values are 'managed' (enterprise users), 'external' or 'all'
-     * @param fields        the fields to retrieve. Leave this out for the standard fields.
-     * @return              An iterator over the selected users.
+     * @param api               the API connection to be used when retrieving the users.
+     * @param filterTerm        The filter term to lookup users by (login for external, login or name for managed)
+     * @param userType          The type of users we want to search with this request.
+     *                          Valid values are 'managed' (enterprise users), 'external' or 'all'
+     * @param externalAppUserId the external app user id that has been set for an app user
+     * @param fields            the fields to retrieve. Leave this out for the standard fields.
+     * @return                  An iterator over the selected users.
      */
     private static Iterable<BoxUser.Info> getUsersInfoForType(final BoxAPIConnection api,
-          final String filterTerm, final String userType, final String... fields) {
+          final String filterTerm, final String userType, final String externalAppUserId, final String... fields) {
         return new Iterable<BoxUser.Info>() {
             public Iterator<BoxUser.Info> iterator() {
                 QueryStringBuilder builder = new QueryStringBuilder();
@@ -216,6 +253,9 @@ public class BoxUser extends BoxCollaborator {
                 }
                 if (userType != null) {
                     builder.appendParam("user_type", userType);
+                }
+                if (externalAppUserId != null) {
+                    builder.appendParam("external_app_user_id", externalAppUserId);
                 }
                 if (fields.length > 0) {
                     builder.appendParam("fields", fields);
@@ -299,11 +339,27 @@ public class BoxUser extends BoxCollaborator {
      * @return       the newly created email alias.
      */
     public EmailAlias addEmailAlias(String email) {
+        return this.addEmailAlias(email, false);
+    }
+
+    /**
+     * Adds a new email alias to this user's account and confirms it without user interaction.
+     * This functionality is only available for enterprise admins.
+     * @param email the email address to add as an alias.
+     * @param isConfirmed whether or not the email alias should be automatically confirmed.
+     * @return the newly created email alias.
+     */
+    public EmailAlias addEmailAlias(String email, boolean isConfirmed) {
         URL url = EMAIL_ALIASES_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "POST");
 
         JsonObject requestJSON = new JsonObject()
-            .add("email", email);
+                .add("email", email);
+
+        if (isConfirmed) {
+            requestJSON.add("is_confirmed", isConfirmed);
+        }
+
         request.setBody(requestJSON.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
@@ -382,6 +438,9 @@ public class BoxUser extends BoxCollaborator {
     }
 
     /**
+     * @deprecated  As of release 2.22.0, replaced by {@link #transferContent(String)} ()}
+     *
+     *
      * Moves all of the owned content from within one user’s folder into a new folder in another user's account.
      * You can move folders across users as long as the you have administrative permissions and the 'source'
      * user owns the folders. Per the documentation at the link below, this will move everything from the root
@@ -392,6 +451,7 @@ public class BoxUser extends BoxCollaborator {
      * @param sourceUserID the user id of the user whose files will be the source for this operation
      * @return info for the newly created folder
      */
+    @Deprecated
     public BoxFolder.Info moveFolderToUser(String sourceUserID) {
         // Currently the API only supports moving of the root folder (0), hence the hard coded "0"
         URL url = MOVE_FOLDER_TO_USER_TEMPLATE.build(this.getAPI().getBaseURL(), sourceUserID, "0");
@@ -404,10 +464,36 @@ public class BoxUser extends BoxCollaborator {
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
         BoxFolder movedFolder = new BoxFolder(this.getAPI(), responseJSON.get("id").asString());
-        response.disconnect();
 
         return movedFolder.new Info(responseJSON);
     }
+
+    /**
+     * Moves all of the owned content from within one user’s folder into a new folder in another user's account.
+     * You can move folders across users as long as the you have administrative permissions and the 'source'
+     * user owns the folders. Per the documentation at the link below, this will move everything from the root
+     * folder, as this is currently the only mode of operation supported.
+     *
+     * See also https://box-content.readme.io/reference#move-folder-into-another-users-folder
+     *
+     * @param destinationUserID the user id of the user that you wish to transfer content to.
+     * @return  info for the newly created folder.
+     */
+    public BoxFolder.Info transferContent(String destinationUserID) {
+        URL url = MOVE_FOLDER_TO_USER_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID(), "0");
+        BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "PUT");
+        JsonObject destinationUser = new JsonObject();
+        destinationUser.add("id", destinationUserID);
+        JsonObject ownedBy = new JsonObject();
+        ownedBy.add("owned_by", destinationUser);
+        request.setBody(ownedBy.toString());
+        BoxJSONResponse response = (BoxJSONResponse) request.send();
+        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
+        BoxFolder movedFolder = new BoxFolder(this.getAPI(), responseJSON.get("id").asString());
+
+        return movedFolder.new Info(responseJSON);
+    }
+
 
     /**
      * Enumerates the possible roles that a user can have within an enterprise.
@@ -505,9 +591,11 @@ public class BoxUser extends BoxCollaborator {
         private boolean isExemptFromLoginVerification;
         private boolean isPasswordResetRequired;
         private boolean isPlatformAccessOnly;
+        private String externalAppUserId;
         private BoxEnterprise enterprise;
         private List<String> myTags;
         private String hostname;
+        private Map<String, String> trackingCodes;
 
         /**
          * Constructs an empty Info object.
@@ -822,6 +910,23 @@ public class BoxUser extends BoxCollaborator {
         }
 
         /**
+         * Gets the external app user id that has been set for the app user.
+         * @return the external app user id.
+         */
+        public String getExternalAppUserId() {
+            return this.externalAppUserId;
+        }
+
+        /**
+         * Sets the external app user id.
+         * @param externalAppUserId external app user id.
+         */
+        public void setExternalAppUserId(String externalAppUserId) {
+            this.externalAppUserId = externalAppUserId;
+            this.addPendingChange("external_app_user_id", externalAppUserId);
+        }
+
+        /**
          * Gets the tags for all files and folders owned by this user.
          * @return the tags for all files and folders owned by this user.
          */
@@ -835,6 +940,14 @@ public class BoxUser extends BoxCollaborator {
          */
         public String getHostname() {
             return this.hostname;
+        }
+
+        /**
+         * Gets the tracking defined for each entity.
+         * @return a Map with traking codes.
+         */
+        public Map<String, String> getTrackingCodes() {
+            return this.trackingCodes;
         }
 
         @Override
@@ -881,6 +994,8 @@ public class BoxUser extends BoxCollaborator {
                 this.isPasswordResetRequired = value.asBoolean();
             } else if (memberName.equals("is_platform_access_only")) {
                 this.isPlatformAccessOnly = value.asBoolean();
+            } else if (memberName.equals("external_app_user_id")) {
+                this.externalAppUserId = value.asString();
             } else if (memberName.equals("enterprise")) {
                 JsonObject jsonObject = value.asObject();
                 if (this.enterprise == null) {
@@ -892,6 +1007,8 @@ public class BoxUser extends BoxCollaborator {
                 this.myTags = this.parseMyTags(value.asArray());
             } else if (memberName.equals("hostname")) {
                 this.hostname = value.asString();
+            } else if (memberName.equals("tracking_codes")) {
+                this.trackingCodes = this.parseTrackingCodes(value.asArray());
             }
         }
 
@@ -902,6 +1019,18 @@ public class BoxUser extends BoxCollaborator {
             }
 
             return myTags;
+        }
+        private Map<String, String> parseTrackingCodes(JsonArray jsonArray) {
+            Map<String, String> result = new HashMap<String, String>();
+            if (jsonArray == null) {
+                return null;
+            }
+            List<JsonValue> valuesList = jsonArray.values();
+            for (JsonValue jsonValue : valuesList) {
+                JsonObject object = jsonValue.asObject();
+                result.put(object.get("name").asString().toString(), object.get("value").asString().toString());
+            }
+            return result;
         }
     }
 }

@@ -6,10 +6,16 @@ including files and folders. The only collection available currently is a
 “Favorites” collection. The contents of the collection are discovered in a
 similar way in which the contents of a folder are discovered.
 
-* [Get Collections](#get-collections)
-* [Get a Collection's Items](#get-a-collections-items)
-* [Add Items to a Collection](#add-items-to-a-collection)
-* [Remove Items from a Collection](#remove-items-from-a-collection)
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+
+- [Get Collections](#get-collections)
+- [Get a Collection's Items](#get-a-collections-items)
+- [Add Items to a Collection](#add-items-to-a-collection)
+- [Remove Items from a Collection](#remove-items-from-a-collection)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 Get Collections
 ---------------
@@ -25,7 +31,7 @@ for (BoxCollection.Info collectionInfo : collections) {
 }
 ```
 
-[get-collections]: http://opensource.box.com/box-java-sdk/javadoc/com/box/sdk/BoxCollection.html#getAllCollections(com.box.sdk.BoxAPIConnection)
+[get-collections]: http://opensource.box.com/box-java-sdk/javadoc/com/box/sdk/BoxCollection.html#getAllCollections-com.box.sdk.BoxAPIConnection-
 
 Get a Collection's Items
 ------------------------
@@ -48,13 +54,13 @@ for (BoxItem.Info itemInfo : folder) {
 }
 ```
 
-[iterator]: https://box.github.io/box-java-sdk/javadoc/com/box/sdk/BoxCollection.html#iterator()
+[iterator]: https://box.github.io/box-java-sdk/javadoc/com/box/sdk/BoxCollection.html#iterator--
 
 Add Items to a Collection
 -------------------------
 
 Add an item to a collection by calling
-[`setCollections(String...)`][set-collections] on any `BoxItem`. Note that this
+[`setCollections(BoxCollection... collections)`][set-collections] on any `BoxItem`. Note that this
 method will overwrite all collections that the item belongs to.
 
 ```java
@@ -73,7 +79,7 @@ Remove Items from a Collection
 ------------------------------
 
 Remove an item from a collection by calling
-[`setCollections(String...)`][set-collections] on any `BoxItem` and exclude the
+[`setCollections(BoxCollection... collections)`][set-collections] on any `BoxItem` and exclude the
 collection to wish to remove it from.
 
 ```java
@@ -91,4 +97,4 @@ for (BoxCollection.Info info : info.getCollections(api)) {
 file.setCollections(collections.toArray());
 ```
 
-[set-collections]: https://box.github.io/box-java-sdk/javadoc/com/box/sdk/BoxItem.html#setCollections(java.lang.String...)
+[set-collections]: http://opensource.box.com/box-java-sdk/javadoc/com/box/sdk/BoxItem.html#setCollections-com.box.sdk.BoxCollection...-

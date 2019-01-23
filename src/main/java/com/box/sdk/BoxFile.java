@@ -7,11 +7,18 @@ import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
+import com.box.sdk.http.HttpMethod;
+import com.box.sdk.internal.utils.Parsers;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
@@ -37,7 +44,7 @@ public class BoxFile extends BoxItem {
                                                "created_by", "modified_by", "owned_by", "shared_link", "parent",
                                                "item_status", "version_number", "comment_count", "permissions", "tags",
                                                "lock", "extension", "is_package", "file_version", "collections",
-                                               "watermark_info"};
+                                               "watermark_info", "metadata", "representations"};
 
     /**
      * Used to specify what filetype to request for a file thumbnail.
@@ -54,25 +61,71 @@ public class BoxFile extends BoxItem {
         JPG
     }
 
-    private static final URLTemplate FILE_URL_TEMPLATE = new URLTemplate("files/%s");
-    private static final URLTemplate CONTENT_URL_TEMPLATE = new URLTemplate("files/%s/content");
-    private static final URLTemplate VERSIONS_URL_TEMPLATE = new URLTemplate("files/%s/versions");
-    private static final URLTemplate COPY_URL_TEMPLATE = new URLTemplate("files/%s/copy");
-    private static final URLTemplate ADD_COMMENT_URL_TEMPLATE = new URLTemplate("comments");
-    private static final URLTemplate GET_COMMENTS_URL_TEMPLATE = new URLTemplate("files/%s/comments");
-    private static final URLTemplate METADATA_URL_TEMPLATE = new URLTemplate("files/%s/metadata/%s/%s");
-    private static final URLTemplate ADD_TASK_URL_TEMPLATE = new URLTemplate("tasks");
-    private static final URLTemplate GET_TASKS_URL_TEMPLATE = new URLTemplate("files/%s/tasks");
-    private static final URLTemplate GET_THUMBNAIL_PNG_TEMPLATE = new URLTemplate("files/%s/thumbnail.png");
-    private static final URLTemplate GET_THUMBNAIL_JPG_TEMPLATE = new URLTemplate("files/%s/thumbnail.jpg");
-    private static final URLTemplate UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/%s/upload-session");
-    private static final URLTemplate UPLOAD_SESSION_STATUS_URL_TEMPLATE = new URLTemplate(
-            "files/upload-session/%s/status");
-    private static final URLTemplate ABORT_UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/upload-session/%s");
-
-    private static final URLTemplate ADD_COLLABORATION_URL = new URLTemplate("collaborations");
-    private static final URLTemplate GET_ALL_FILE_COLLABORATIONS_URL = new URLTemplate("files/%s/collaborations");
-
+    /**
+     * File URL Template.
+     */
+    public static final URLTemplate FILE_URL_TEMPLATE = new URLTemplate("files/%s");
+    /**
+     * Content URL Template.
+     */
+    public static final URLTemplate CONTENT_URL_TEMPLATE = new URLTemplate("files/%s/content");
+    /**
+     * Versions URL Template.
+     */
+    public static final URLTemplate VERSIONS_URL_TEMPLATE = new URLTemplate("files/%s/versions");
+    /**
+     * Copy URL Template.
+     */
+    public static final URLTemplate COPY_URL_TEMPLATE = new URLTemplate("files/%s/copy");
+    /**
+     * Add Comment URL Template.
+     */
+    public static final URLTemplate ADD_COMMENT_URL_TEMPLATE = new URLTemplate("comments");
+    /**
+     * Get Comments URL Template.
+     */
+    public static final URLTemplate GET_COMMENTS_URL_TEMPLATE = new URLTemplate("files/%s/comments");
+    /**
+     * Metadata URL Template.
+     */
+    public static final URLTemplate METADATA_URL_TEMPLATE = new URLTemplate("files/%s/metadata/%s/%s");
+    /**
+     * Add Task URL Template.
+     */
+    public static final URLTemplate ADD_TASK_URL_TEMPLATE = new URLTemplate("tasks");
+    /**
+     * Get Tasks URL Template.
+     */
+    public static final URLTemplate GET_TASKS_URL_TEMPLATE = new URLTemplate("files/%s/tasks");
+    /**
+     * Get Thumbnail PNG Template.
+     */
+    public static final URLTemplate GET_THUMBNAIL_PNG_TEMPLATE = new URLTemplate("files/%s/thumbnail.png");
+    /**
+     * Get Thumbnail JPG Template.
+     */
+    public static final URLTemplate GET_THUMBNAIL_JPG_TEMPLATE = new URLTemplate("files/%s/thumbnail.jpg");
+    /**
+     * Upload Session URL Template.
+     */
+    public static final URLTemplate UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/%s/upload_sessions");
+    /**
+     * Upload Session Status URL Template.
+     */
+    public static final URLTemplate UPLOAD_SESSION_STATUS_URL_TEMPLATE = new URLTemplate(
+            "files/upload_sessions/%s/status");
+    /**
+     * Abort Upload Session URL Template.
+     */
+    public static final URLTemplate ABORT_UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/upload_sessions/%s");
+    /**
+     * Add Collaborations URL Template.
+     */
+    public static final URLTemplate ADD_COLLABORATION_URL = new URLTemplate("collaborations");
+    /**
+     * Get All File Collaborations URL Template.
+     */
+    public static final URLTemplate GET_ALL_FILE_COLLABORATIONS_URL = new URLTemplate("files/%s/collaborations");
     private static final int BUFFER_SIZE = 8192;
     private static final int GET_COLLABORATORS_PAGE_SIZE = 1000;
 
@@ -99,6 +152,26 @@ public class BoxFile extends BoxItem {
                                           BoxSharedLink.Permissions permissions) {
 
         BoxSharedLink sharedLink = new BoxSharedLink(access, unshareDate, permissions);
+        Info info = new Info();
+        info.setSharedLink(sharedLink);
+
+        this.updateInfo(info);
+        return info.getSharedLink();
+    }
+
+    /**
+     * Creates new SharedLink for a BoxFile with a password.
+     *
+     * @param access        The access level of the shared link.
+     * @param unshareDate   A specified date to unshare the Box file.
+     * @param permissions   The permissions to set on the shared link for the Box file.
+     * @param password      Password set on the shared link to give access to the Box file.
+     * @return information about the newly created shared link.
+     */
+    public BoxSharedLink createSharedLink(BoxSharedLink.Access access, Date unshareDate,
+                                          BoxSharedLink.Permissions permissions, String password) {
+
+        BoxSharedLink sharedLink = new BoxSharedLink(access, unshareDate, permissions, password);
         Info info = new Info();
         info.setSharedLink(sharedLink);
 
@@ -391,6 +464,141 @@ public class BoxFile extends BoxItem {
     }
 
     /**
+     * Gets information about this item including a specified set of representations.
+     * @see <a href=https://developer.box.com/reference#section-x-rep-hints-header>X-Rep-Hints Header</a>
+     *
+     * @param representationHints hints for representations to be retrieved
+     * @param fields the fields to retrieve.
+     * @return info about this item containing only the specified fields, including representations.
+     */
+    public BoxFile.Info getInfoWithRepresentations(String representationHints, String... fields) {
+        if (representationHints.matches(Representation.X_REP_HINTS_PATTERN)) {
+            //Since the user intends to get representations, add it to fields, even if user has missed it
+            Set<String> fieldsSet = new HashSet<String>(Arrays.asList(fields));
+            fieldsSet.add("representations");
+            String queryString = new QueryStringBuilder().appendParam("fields",
+                fieldsSet.toArray(new String[fieldsSet.size()])).toString();
+            URL url = FILE_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), queryString, this.getID());
+
+            BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
+            request.addHeader("X-Rep-Hints", representationHints);
+            BoxJSONResponse response = (BoxJSONResponse) request.send();
+            return new Info(response.getJSON());
+        } else {
+            throw new BoxAPIException("Represention hints is not valid."
+                + " Refer documention on how to construct X-Rep-Hints Header");
+        }
+    }
+
+    /**
+     * Fetches the contents of a file representation and writes them to the provided output stream.
+     * @see <a href=https://developer.box.com/reference#section-x-rep-hints-header>X-Rep-Hints Header</a>
+     * @param representationHint the X-Rep-Hints query for the representation to fetch.
+     * @param output the output stream to write the contents to.
+     */
+    public void getRepresentationContent(String representationHint, OutputStream output) {
+
+        this.getRepresentationContent(representationHint, "", output);
+    }
+
+    /**
+     * Fetches the contents of a file representation with asset path and writes them to the provided output stream.
+     * @see <a href=https://developer.box.com/reference#section-x-rep-hints-header>X-Rep-Hints Header</a>
+     * @param representationHint the X-Rep-Hints query for the representation to fetch.
+     * @param assetPath the path of the asset for representations containing multiple files.
+     * @param output the output stream to write the contents to.
+     */
+    public void getRepresentationContent(String representationHint, String assetPath, OutputStream output) {
+
+        List<Representation> reps = this.getInfoWithRepresentations(representationHint).getRepresentations();
+        if (reps.size() < 1) {
+            throw new BoxAPIException("No matching representations found");
+        }
+        Representation representation = reps.get(0);
+        String repState = representation.getStatus().getState();
+
+        if (repState.equals("viewable") || repState.equals("success")) {
+
+            this.makeRepresentationContentRequest(representation.getContent().getUrlTemplate(),
+                    assetPath, output);
+            return;
+        } else if (repState.equals("pending") || repState.equals("none")) {
+
+            String repContentURLString = null;
+            while (repContentURLString == null) {
+                repContentURLString = this.pollRepInfo(representation.getInfo().getUrl());
+            }
+
+            this.makeRepresentationContentRequest(repContentURLString, assetPath, output);
+            return;
+
+        } else if (repState.equals("error")) {
+
+            throw new BoxAPIException("Representation had error status");
+        } else {
+
+            throw new BoxAPIException("Representation had unknown status");
+        }
+
+    }
+
+    private String pollRepInfo(URL infoURL) {
+
+        BoxAPIRequest infoRequest = new BoxAPIRequest(this.getAPI(), infoURL, HttpMethod.GET);
+        BoxJSONResponse infoResponse = (BoxJSONResponse) infoRequest.send();
+        JsonObject response = infoResponse.getJsonObject();
+
+        Representation rep = new Representation(response);
+
+        String repState = rep.getStatus().getState();
+
+        if (repState.equals("viewable") || repState.equals("success")) {
+
+            return rep.getContent().getUrlTemplate();
+        } else if (repState.equals("pending") || repState.equals("none")) {
+
+            return null;
+
+        } else if (repState.equals("error")) {
+
+            throw new BoxAPIException("Representation had error status");
+        } else {
+
+            throw new BoxAPIException("Representation had unknown status");
+        }
+    }
+
+    private void makeRepresentationContentRequest(String representationURLTemplate, String assetPath,
+                                                  OutputStream output) {
+
+        try {
+
+            URL repURL = new URL(representationURLTemplate.replace("{+asset_path}", assetPath));
+            BoxAPIRequest repContentReq = new BoxAPIRequest(this.getAPI(), repURL, HttpMethod.GET);
+
+            BoxAPIResponse contentResponse = repContentReq.send();
+
+            InputStream input = contentResponse.getBody();
+
+            byte[] buffer = new byte[BUFFER_SIZE];
+            try {
+                int n = input.read(buffer);
+                while (n != -1) {
+                    output.write(buffer, 0, n);
+                    n = input.read(buffer);
+                }
+            } catch (IOException e) {
+                throw new BoxAPIException("Couldn't connect to the Box API due to a network error.", e);
+            } finally {
+                contentResponse.disconnect();
+            }
+        } catch (MalformedURLException ex) {
+
+            throw new BoxAPIException("Could not generate representation content URL");
+        }
+    }
+
+    /**
      * Updates the information about this file with any info fields that have been modified locally.
      *
      * <p>The only fields that will be updated are the ones that have been modified locally. For example, the following
@@ -439,7 +647,9 @@ public class BoxFile extends BoxItem {
      * @param name     the name to give the uploaded file or null to use existing name.
      * @param fileSize the size of the file used for account capacity calculations.
      * @param parentID the ID of the parent folder that the new version is being uploaded to.
+     * @deprecated This method will be removed in future versions of the SDK; use canUploadVersion(String, long) instead
      */
+    @Deprecated
     public void canUploadVersion(String name, long fileSize, String parentID) {
         URL url = CONTENT_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "OPTIONS");
@@ -461,11 +671,57 @@ public class BoxFile extends BoxItem {
     }
 
     /**
+     * Checks if a new version of the file can be uploaded with the specified name.
+     * @param name the new name for the file.
+     * @return whether or not the file version can be uploaded.
+     */
+    public boolean canUploadVersion(String name) {
+        return this.canUploadVersion(name, 0);
+    }
+
+    /**
+     * Checks if a new version of the file can be uploaded with the specified name and size.
+     * @param name the new name for the file.
+     * @param fileSize the size of the new version content in bytes.
+     * @return whether or not the file version can be uploaded.
+     */
+    public boolean canUploadVersion(String name, long fileSize) {
+
+        URL url = CONTENT_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
+        BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), url, "OPTIONS");
+
+        JsonObject preflightInfo = new JsonObject();
+        if (name != null) {
+            preflightInfo.add("name", name);
+        }
+
+        preflightInfo.add("size", fileSize);
+
+        request.setBody(preflightInfo.toString());
+        try {
+            BoxAPIResponse response = request.send();
+
+            return response.getResponseCode() == 200;
+        } catch (BoxAPIException ex) {
+
+            if (ex.getResponseCode() >= 400 && ex.getResponseCode() < 500) {
+                // This looks like an error response, menaing the upload would fail
+                return false;
+            } else {
+                // This looks like a network error or server error, rethrow exception
+                throw ex;
+            }
+        }
+    }
+
+    /**
      * Uploads a new version of this file, replacing the current version. Note that only users with premium accounts
      * will be able to view and recover previous versions of the file.
      *
      * @param fileContent a stream containing the new file contents.
+     * @deprecated use uploadNewVersion() instead.
      */
+    @Deprecated
     public void uploadVersion(InputStream fileContent) {
         this.uploadVersion(fileContent, null);
     }
@@ -476,7 +732,9 @@ public class BoxFile extends BoxItem {
      *
      * @param fileContent     a stream containing the new file contents.
      * @param fileContentSHA1 a string containing the SHA1 hash of the new file contents.
+     * @deprecated use uploadNewVersion() instead.
      */
+    @Deprecated
     public void uploadVersion(InputStream fileContent, String fileContentSHA1) {
         this.uploadVersion(fileContent, fileContentSHA1, null);
     }
@@ -488,7 +746,9 @@ public class BoxFile extends BoxItem {
      * @param fileContent     a stream containing the new file contents.
      * @param fileContentSHA1 a string containing the SHA1 hash of the new file contents.
      * @param modified        the date that the new version was modified.
+     * @deprecated use uploadNewVersion() instead.
      */
+    @Deprecated
     public void uploadVersion(InputStream fileContent, String fileContentSHA1, Date modified) {
         this.uploadVersion(fileContent, fileContentSHA1, modified, 0, null);
     }
@@ -502,7 +762,9 @@ public class BoxFile extends BoxItem {
      * @param modified    the date that the new version was modified.
      * @param fileSize    the size of the file used for determining the progress of the upload.
      * @param listener    a listener for monitoring the upload's progress.
+     * @deprecated use uploadNewVersion() instead.
      */
+    @Deprecated
     public void uploadVersion(InputStream fileContent, Date modified, long fileSize, ProgressListener listener) {
         this.uploadVersion(fileContent, null, modified, fileSize, listener);
     }
@@ -517,8 +779,80 @@ public class BoxFile extends BoxItem {
      * @param modified        the date that the new version was modified.
      * @param fileSize        the size of the file used for determining the progress of the upload.
      * @param listener        a listener for monitoring the upload's progress.
+     * @deprecated use uploadNewVersion() instead.
      */
+    @Deprecated
     public void uploadVersion(InputStream fileContent, String fileContentSHA1, Date modified, long fileSize,
+                              ProgressListener listener) {
+        this.uploadNewVersion(fileContent, fileContentSHA1, modified, fileSize, listener);
+        return;
+    }
+
+    /**
+     * Uploads a new version of this file, replacing the current version. Note that only users with premium accounts
+     * will be able to view and recover previous versions of the file.
+     *
+     * @param fileContent a stream containing the new file contents.
+     * @return the uploaded file version.
+     */
+    public BoxFile.Info uploadNewVersion(InputStream fileContent) {
+        return this.uploadNewVersion(fileContent, null);
+    }
+
+    /**
+     * Uploads a new version of this file, replacing the current version. Note that only users with premium accounts
+     * will be able to view and recover previous versions of the file.
+     *
+     * @param fileContent     a stream containing the new file contents.
+     * @param fileContentSHA1 a string containing the SHA1 hash of the new file contents.
+     * @return the uploaded file version.
+     */
+    public BoxFile.Info uploadNewVersion(InputStream fileContent, String fileContentSHA1) {
+        return this.uploadNewVersion(fileContent, fileContentSHA1, null);
+    }
+
+    /**
+     * Uploads a new version of this file, replacing the current version. Note that only users with premium accounts
+     * will be able to view and recover previous versions of the file.
+     *
+     * @param fileContent     a stream containing the new file contents.
+     * @param fileContentSHA1 a string containing the SHA1 hash of the new file contents.
+     * @param modified        the date that the new version was modified.
+     * @return the uploaded file version.
+     */
+    public BoxFile.Info uploadNewVersion(InputStream fileContent, String fileContentSHA1, Date modified) {
+        return this.uploadNewVersion(fileContent, fileContentSHA1, modified, 0, null);
+    }
+
+    /**
+     * Uploads a new version of this file, replacing the current version, while reporting the progress to a
+     * ProgressListener. Note that only users with premium accounts will be able to view and recover previous versions
+     * of the file.
+     *
+     * @param fileContent a stream containing the new file contents.
+     * @param modified    the date that the new version was modified.
+     * @param fileSize    the size of the file used for determining the progress of the upload.
+     * @param listener    a listener for monitoring the upload's progress.
+     * @return the uploaded file version.
+     */
+    public BoxFile.Info uploadNewVersion(InputStream fileContent, Date modified, long fileSize,
+                                         ProgressListener listener) {
+        return this.uploadNewVersion(fileContent, null, modified, fileSize, listener);
+    }
+
+    /**
+     * Uploads a new version of this file, replacing the current version, while reporting the progress to a
+     * ProgressListener. Note that only users with premium accounts will be able to view and recover previous versions
+     * of the file.
+     *
+     * @param fileContent     a stream containing the new file contents.
+     * @param fileContentSHA1 the SHA1 hash of the file contents. will be sent along in the Content-MD5 header
+     * @param modified        the date that the new version was modified.
+     * @param fileSize        the size of the file used for determining the progress of the upload.
+     * @param listener        a listener for monitoring the upload's progress.
+     * @return the uploaded file version.
+     */
+    public BoxFile.Info uploadNewVersion(InputStream fileContent, String fileContentSHA1, Date modified, long fileSize,
                               ProgressListener listener) {
         URL uploadURL = CONTENT_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL(), this.getID());
         BoxMultipartRequest request = new BoxMultipartRequest(getAPI(), uploadURL);
@@ -543,7 +877,10 @@ public class BoxFile extends BoxItem {
         } else {
             response = (BoxJSONResponse) request.send(listener);
         }
-        response.getJSON();
+
+        String fileJSON = response.getJsonObject().get("entries").asArray().get(0).toString();
+
+        return new BoxFile.Info(fileJSON);
     }
 
     /**
@@ -634,12 +971,17 @@ public class BoxFile extends BoxItem {
     }
 
     /**
-     * Gets a list of any tasks on this file.
+     * Gets a list of any tasks on this file with requested fields.
      *
+     * @param fields optional fields to retrieve for this task.
      * @return a list of tasks on this file.
      */
-    public List<BoxTask.Info> getTasks() {
-        URL url = GET_TASKS_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
+    public List<BoxTask.Info> getTasks(String... fields) {
+        QueryStringBuilder builder = new QueryStringBuilder();
+        if (fields.length > 0) {
+            builder.appendParam("fields", fields).toString();
+        }
+        URL url = GET_TASKS_URL_TEMPLATE.buildWithQuery(this.getAPI().getBaseURL(), builder.toString(), this.getID());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "GET");
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
@@ -699,6 +1041,25 @@ public class BoxFile extends BoxItem {
     /**
      * Locks a file.
      *
+     * @return the lock returned from the server.
+     */
+    public BoxLock lock() {
+        return this.lock(null, false);
+    }
+
+    /**
+     * Locks a file.
+     *
+     * @param isDownloadPrevented is downloading of file prevented when locked.
+     * @return the lock returned from the server.
+     */
+    public BoxLock lock(boolean isDownloadPrevented) {
+        return this.lock(null, isDownloadPrevented);
+    }
+
+    /**
+     * Locks a file.
+     *
      * @param expiresAt expiration date of the lock.
      * @return the lock returned from the server.
      */
@@ -720,7 +1081,9 @@ public class BoxFile extends BoxItem {
 
         JsonObject lockConfig = new JsonObject();
         lockConfig.add("type", "lock");
-        lockConfig.add("expires_at", BoxDateFormat.format(expiresAt));
+        if (expiresAt != null) {
+            lockConfig.add("expires_at", BoxDateFormat.format(expiresAt));
+        }
         lockConfig.add("is_download_prevented", isDownloadPrevented);
 
         JsonObject requestJSON = new JsonObject();
@@ -917,7 +1280,7 @@ public class BoxFile extends BoxItem {
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
 
-        String sessionId = jsonObject.get("upload_session_id").asString();
+        String sessionId = jsonObject.get("id").asString();
         BoxFileUploadSession session = new BoxFileUploadSession(this.getAPI(), sessionId);
         return session.new Info(jsonObject);
     }
@@ -927,11 +1290,98 @@ public class BoxFile extends BoxItem {
      * @param inputStream the stream instance that contains the data.
      * @param fileSize the size of the file that will be uploaded.
      * @return the created file instance.
+     * @throws InterruptedException when a thread execution is interrupted.
+     * @throws IOException when reading a stream throws exception.
      */
-    public BoxFile.Info uploadLargeFile(InputStream inputStream, long fileSize) {
+    public BoxFile.Info uploadLargeFile(InputStream inputStream, long fileSize)
+        throws InterruptedException, IOException {
         URL url = UPLOAD_SESSION_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL(), this.getID());
+        return new LargeFileUpload().upload(this.getAPI(), inputStream, url, fileSize);
+    }
 
-        return LargeFileUpload.upload(this.getAPI(), inputStream, url, fileSize);
+    /**
+     * Creates a new version of a file using specified number of parallel http connections.
+     * @param inputStream the stream instance that contains the data.
+     * @param fileSize the size of the file that will be uploaded.
+     * @param nParallelConnections number of parallel http connections to use
+     * @param timeOut time to wait before killing the job
+     * @param unit time unit for the time wait value
+     * @return the created file instance.
+     * @throws InterruptedException when a thread execution is interrupted.
+     * @throws IOException when reading a stream throws exception.
+     */
+    public BoxFile.Info uploadLargeFile(InputStream inputStream, long fileSize,
+                                        int nParallelConnections, long timeOut, TimeUnit unit)
+        throws InterruptedException, IOException {
+        URL url = UPLOAD_SESSION_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL(), this.getID());
+        return new LargeFileUpload(nParallelConnections, timeOut, unit)
+            .upload(this.getAPI(), inputStream, url, fileSize);
+    }
+
+    private BoxCollaboration.Info collaborate(JsonObject accessibleByField, BoxCollaboration.Role role,
+                                              Boolean notify, Boolean canViewPath) {
+
+        JsonObject itemField = new JsonObject();
+        itemField.add("id", this.getID());
+        itemField.add("type", "file");
+
+        return BoxCollaboration.create(this.getAPI(), accessibleByField, itemField, role, notify, canViewPath);
+    }
+
+    /**
+     * Adds a collaborator to this file.
+     *
+     * @param collaborator the collaborator to add.
+     * @param role         the role of the collaborator.
+     * @param notify       determines if the user (or all the users in the group) will receive email notifications.
+     * @param canViewPath  whether view path collaboration feature is enabled or not.
+     * @return info about the new collaboration.
+     */
+    public BoxCollaboration.Info collaborate(BoxCollaborator collaborator, BoxCollaboration.Role role,
+                                             Boolean notify, Boolean canViewPath) {
+        JsonObject accessibleByField = new JsonObject();
+        accessibleByField.add("id", collaborator.getID());
+
+        if (collaborator instanceof BoxUser) {
+            accessibleByField.add("type", "user");
+        } else if (collaborator instanceof BoxGroup) {
+            accessibleByField.add("type", "group");
+        } else {
+            throw new IllegalArgumentException("The given collaborator is of an unknown type.");
+        }
+        return this.collaborate(accessibleByField, role, notify, canViewPath);
+    }
+
+
+    /**
+     * Adds a collaborator to this folder. An email will be sent to the collaborator if they don't already have a Box
+     * account.
+     *
+     * @param email the email address of the collaborator to add.
+     * @param role  the role of the collaborator.
+     * @param notify       determines if the user (or all the users in the group) will receive email notifications.
+     * @param canViewPath  whether view path collaboration feature is enabled or not.
+     * @return info about the new collaboration.
+     */
+    public BoxCollaboration.Info collaborate(String email, BoxCollaboration.Role role,
+                                             Boolean notify, Boolean canViewPath) {
+        JsonObject accessibleByField = new JsonObject();
+        accessibleByField.add("login", email);
+        accessibleByField.add("type", "user");
+
+        return this.collaborate(accessibleByField, role, notify, canViewPath);
+    }
+
+    /**
+     * Used to retrieve all collaborations associated with the item.
+     *
+     * @param fields the optional fields to retrieve.
+     * @return An iterable of metadata instances associated with the item.
+     */
+    public BoxResourceIterable<BoxCollaboration.Info> getAllFileCollaborations(String... fields) {
+        return BoxCollaboration.getAllFileCollaborations(this.getAPI(), this.getID(),
+                GET_COLLABORATORS_PAGE_SIZE, fields);
+
     }
 
     /**
@@ -948,6 +1398,9 @@ public class BoxFile extends BoxItem {
         private URL previewLink;
         private BoxLock lock;
         private boolean isWatermarked;
+        private JsonObject metadata;
+        private Map<String, Map<String, Metadata>> metadataMap;
+        private List<Representation> representations;
 
         /**
          * Constructs an empty Info object.
@@ -970,7 +1423,7 @@ public class BoxFile extends BoxItem {
          *
          * @param jsonObject the parsed JSON object.
          */
-        Info(JsonObject jsonObject) {
+        public Info(JsonObject jsonObject) {
             super(jsonObject);
         }
 
@@ -1069,6 +1522,30 @@ public class BoxFile extends BoxItem {
             return this.isWatermarked;
         }
 
+        /**
+         * Gets the metadata on this file associated with a specified scope and template.
+         * Makes an attempt to get metadata that was retrieved using getInfo(String ...) method. If no result is found
+         * then makes an API call to get metadata
+         * @param   templateName    the metadata template type name.
+         * @param   scope           the scope of the template (usually "global" or "enterprise").
+         * @return                  the metadata returned from the server.
+         */
+        public Metadata getMetadata(String templateName, String scope) {
+            try {
+                return this.metadataMap.get(scope).get(templateName);
+            } catch (NullPointerException e) {
+                return null;
+            }
+        }
+
+        /**
+         * Get file's representations.
+         * @return list of representations
+         */
+        public List<Representation> getRepresentations() {
+            return this.representations;
+        }
+
         @Override
         protected void parseJSONMember(JsonObject.Member member) {
             super.parseJSONMember(member);
@@ -1105,6 +1582,12 @@ public class BoxFile extends BoxItem {
             } else if (memberName.equals("watermark_info")) {
                 JsonObject jsonObject = value.asObject();
                 this.isWatermarked = jsonObject.get("is_watermarked").asBoolean();
+            } else if (memberName.equals("metadata")) {
+                JsonObject jsonObject = value.asObject();
+                this.metadataMap = Parsers.parseAndPopulateMetadataMap(jsonObject);
+            } else if (memberName.equals("representations")) {
+                JsonObject jsonObject = value.asObject();
+                this.representations = Parsers.parseRepresentations(jsonObject);
             }
         }
 
@@ -1203,90 +1686,4 @@ public class BoxFile extends BoxItem {
         }
     }
 
-    private BoxCollaboration.Info collaborate(JsonObject accessibleByField, BoxCollaboration.Role role,
-                                              Boolean notify, Boolean canViewPath) {
-        BoxAPIConnection api = this.getAPI();
-        URL url = ADD_COLLABORATION_URL.build(api.getBaseURL());
-
-        JsonObject itemField = new JsonObject();
-        itemField.add("id", this.getID());
-        itemField.add("type", "file");
-
-        JsonObject requestJSON = new JsonObject();
-        requestJSON.add("item", itemField);
-        requestJSON.add("accessible_by", accessibleByField);
-        requestJSON.add("role", role.toJSONString());
-        if (canViewPath != null) {
-            requestJSON.add("can_view_path", canViewPath.booleanValue());
-        }
-
-        BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
-        if (notify != null) {
-            request.addHeader("notify", notify.toString());
-        }
-
-        request.setBody(requestJSON.toString());
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
-
-        BoxCollaboration newCollaboration = new BoxCollaboration(api, responseJSON.get("id").asString());
-        BoxCollaboration.Info info = newCollaboration.new Info(responseJSON);
-        return info;
-    }
-
-    /**
-     * Adds a collaborator to this file.
-     *
-     * @param collaborator the collaborator to add.
-     * @param role         the role of the collaborator.
-     * @param notify       determines if the user (or all the users in the group) will receive email notifications.
-     * @param canViewPath  whether view path collaboration feature is enabled or not.
-     * @return info about the new collaboration.
-     */
-    public BoxCollaboration.Info collaborate(BoxCollaborator collaborator, BoxCollaboration.Role role,
-                                             Boolean notify, Boolean canViewPath) {
-        JsonObject accessibleByField = new JsonObject();
-        accessibleByField.add("id", collaborator.getID());
-
-        if (collaborator instanceof BoxUser) {
-            accessibleByField.add("type", "user");
-        } else if (collaborator instanceof BoxGroup) {
-            accessibleByField.add("type", "group");
-        } else {
-            throw new IllegalArgumentException("The given collaborator is of an unknown type.");
-        }
-        return this.collaborate(accessibleByField, role, notify, canViewPath);
-    }
-
-
-    /**
-     * Adds a collaborator to this folder. An email will be sent to the collaborator if they don't already have a Box
-     * account.
-     *
-     * @param email the email address of the collaborator to add.
-     * @param role  the role of the collaborator.
-     * @param notify       determines if the user (or all the users in the group) will receive email notifications.
-     * @param canViewPath  whether view path collaboration feature is enabled or not.
-     * @return info about the new collaboration.
-     */
-    public BoxCollaboration.Info collaborate(String email, BoxCollaboration.Role role,
-                                             Boolean notify, Boolean canViewPath) {
-        JsonObject accessibleByField = new JsonObject();
-        accessibleByField.add("login", email);
-        accessibleByField.add("type", "user");
-
-        return this.collaborate(accessibleByField, role, notify, canViewPath);
-    }
-
-    /**
-     * Used to retrieve all collaborations associated with the item.
-     *
-     * @param fields the optional fields to retrieve.
-     * @return An iterable of metadata instances associated with the item.
-     */
-    public BoxResourceIterable<BoxCollaboration.Info> getAllFileCollaborations(String... fields) {
-        return BoxCollaboration.getAllFileCollaborations(this.getAPI(), this.getID(),
-                GET_COLLABORATORS_PAGE_SIZE, fields);
-
-    }
 }

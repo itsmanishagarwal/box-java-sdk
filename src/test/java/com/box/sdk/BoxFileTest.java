@@ -1,24 +1,16 @@
 package com.box.sdk;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
-import java.io.UnsupportedEncodingException;
+import java.io.*;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 
@@ -31,16 +23,22 @@ import static org.hamcrest.Matchers.isEmptyOrNullString;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.*;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.longThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.*;
+
+import com.eclipsesource.json.JsonArray;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockClassRule;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
+import org.junit.ClassRule;
+
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -50,346 +48,30 @@ import com.eclipsesource.json.JsonObject;
  * {@link BoxFile} related unit tests.
  */
 public class BoxFileTest {
-    /**
-     * Unit test for {@link BoxFile#addTask(BoxTask.Action, String, Date)}
-     */
+
+    @ClassRule
+    public static final WireMockClassRule WIRE_MOCK_CLASS_RULE = new WireMockClassRule(53621);
+    static final String LARGE_FILE_NAME = "oversize_pdf_test_0.pdf";
+
+    private BoxAPIConnection api = TestConfig.getAPIConnection();
+
     @Test
-    @Category(UnitTest.class)
-    public void testAddTaskSendsCorrectJson() throws ParseException {
-        final String itemType = "file";
-        final String itemID = "1";
-        final String action = "review";
-        final String message = "text message";
-        final Date dueAt = BoxDateFormat.parse("2016-05-09T17:41:27-07:00");
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new JSONRequestInterceptor() {
-            @Override
-            protected BoxAPIResponse onJSONRequest(BoxJSONRequest request, JsonObject json) {
-                Assert.assertEquals("https://api.box.com/2.0/tasks",
-                        request.getUrl().toString());
-                Assert.assertEquals(itemID, json.get("item").asObject().get("id").asString());
-                Assert.assertEquals(itemType, json.get("item").asObject().get("type").asString());
-                Assert.assertEquals(action, json.get("action").asString());
-                Assert.assertEquals(message, json.get("message").asString());
-                try {
-                    Assert.assertEquals(dueAt, BoxDateFormat.parse(json.get("due_at").asString()));
-                } catch (ParseException e) {
-                    assert false;
-                }
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{\"id\": \"0\"}";
-                    }
-                };
-            }
-        });
-
-        new BoxFile(api, "1").addTask(BoxTask.Action.REVIEW, message, dueAt);
+    @Category(IntegrationTest.class)
+    public void getInfoWithRepresentationsIntegrationTestWithSimpleHint() throws MalformedURLException {
+        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
+        BoxFile file = new BoxFile(api, "135907614435");
+        List<Representation> representations = file.getInfoWithRepresentations("[png]").getRepresentations();
+        Assert.assertTrue("There should be at least one representation", representations.size() > 0);
     }
 
-    /**
-     * Unit test for {@link BoxFile#addTask(BoxTask.Action, String, Date)}
-     */
     @Test
-    @Category(UnitTest.class)
-    public void testAddTaskParseAllFieldsCorrectly() throws ParseException {
-        final String id = "1839355";
-        final String itemID = "7287087200";
-        final String itemSequenceID = "0";
-        final String itemEtag = "0";
-        final String itemSha1 = "0bbd79a105c504f99573e3799756debba4c760cd";
-        final String itemName = "box-logo.png";
-        final Date dueAt = BoxDateFormat.parse("2014-04-03T11:09:43-07:00");
-        final BoxTask.Action action = BoxTask.Action.REVIEW;
-        final String message = "REVIEW PLZ K THX";
-        final int assignmentCount = 0;
-        final boolean isCompleted = false;
-        final String createdByID = "11993747";
-        final String createdByName = "sean";
-        final String createdByLogin = "sean@box.com";
-        final Date createdAt = BoxDateFormat.parse("2013-04-03T11:12:54-07:00");
-
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "    \"type\": \"task\",\n"
-                + "    \"id\": \"1839355\",\n"
-                + "    \"item\": {\n"
-                + "        \"type\": \"file\",\n"
-                + "        \"id\": \"7287087200\",\n"
-                + "        \"sequence_id\": \"0\",\n"
-                + "        \"etag\": \"0\",\n"
-                + "        \"sha1\": \"0bbd79a105c504f99573e3799756debba4c760cd\",\n"
-                + "        \"name\": \"box-logo.png\"\n"
-                + "    },\n"
-                + "    \"due_at\": \"2014-04-03T11:09:43-07:00\",\n"
-                + "    \"action\": \"review\",\n"
-                + "    \"message\": \"REVIEW PLZ K THX\",\n"
-                + "    \"task_assignment_collection\": {\n"
-                + "        \"total_count\": 0,\n"
-                + "        \"entries\": []\n"
-                + "    },\n"
-                + "    \"is_completed\": false,\n"
-                + "    \"created_by\": {\n"
-                + "        \"type\": \"user\",\n"
-                + "        \"id\": \"11993747\",\n"
-                + "        \"name\": \"sean\",\n"
-                + "        \"login\": \"sean@box.com\"\n"
-                + "    },\n"
-                + "    \"created_at\": \"2013-04-03T11:12:54-07:00\"\n"
-                + "}");
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
-
-        BoxTask.Info info = new BoxFile(api, id).addTask(action, message, dueAt);
-        Assert.assertEquals(id, info.getID());
-        Assert.assertEquals(itemID, info.getItem().getID());
-        Assert.assertEquals(itemSequenceID, info.getItem().getSequenceID());
-        Assert.assertEquals(itemEtag, info.getItem().getEtag());
-        Assert.assertEquals(itemSha1, info.getItem().getSha1());
-        Assert.assertEquals(itemName, info.getItem().getName());
-        Assert.assertEquals(dueAt, info.getDueAt());
-        Assert.assertEquals(action, info.getAction());
-        Assert.assertEquals(message, info.getMessage());
-        Assert.assertEquals(assignmentCount, info.getTaskAssignments().size());
-        Assert.assertEquals(isCompleted, info.isCompleted());
-        Assert.assertEquals(createdByID, info.getCreatedBy().getID());
-        Assert.assertEquals(createdByName, info.getCreatedBy().getName());
-        Assert.assertEquals(createdByLogin, info.getCreatedBy().getLogin());
-        Assert.assertEquals(createdAt, info.getCreatedAt());
-    }
-
-    /**
-     * Unit test for {@link BoxFile#getWatermark(String...)}
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testGetWatermarkSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals("https://api.box.com/2.0/files/0/watermark",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{}";
-                    }
-                };
-            }
-        });
-
-        new BoxFile(api, "0").getWatermark();
-    }
-
-    /**
-     * Unit test for {@link BoxFile#getWatermark(String...)}
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testGetWatermarkParseAllFieldsCorrectly() throws ParseException {
-        final Date createdAt = BoxDateFormat.parse("2016-10-31T15:33:33-07:00");
-        final Date modifiedAt = BoxDateFormat.parse("2016-11-31T15:33:33-07:00");
-
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "  \"watermark\": {\n"
-                + "    \"created_at\": \"2016-10-31T15:33:33-07:00\",\n"
-                + "    \"modified_at\": \"2016-11-31T15:33:33-07:00\"\n"
-                + "  }\n"
-                + "}");
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
-
-        BoxWatermark watermark = new BoxFile(api, "0").getWatermark();
-        Assert.assertEquals(createdAt, watermark.getCreatedAt());
-        Assert.assertEquals(modifiedAt, watermark.getModifiedAt());
-    }
-
-    /**
-     * Unit test for {@link BoxFile#applyWatermark()}
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testApplyWatermarkSendsCorrectJson() {
-        final String imprint = "default";
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new JSONRequestInterceptor() {
-            @Override
-            protected BoxAPIResponse onJSONRequest(BoxJSONRequest request, JsonObject json) {
-                Assert.assertEquals("https://api.box.com/2.0/files/0/watermark",
-                        request.getUrl().toString());
-                Assert.assertEquals(imprint, json.get("watermark").asObject().get("imprint").asString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{}";
-                    }
-                };
-            }
-        });
-
-        new BoxFile(api, "0").applyWatermark();
-    }
-
-    /**
-     * Unit test for {@link BoxFile#applyWatermark()}
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testApplyWatermarkParseAllFieldsCorrectly() throws ParseException {
-        final Date createdAt = BoxDateFormat.parse("2016-10-31T15:33:33-07:00");
-        final Date modifiedAt = BoxDateFormat.parse("2016-11-31T15:33:33-07:00");
-
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "  \"watermark\": {\n"
-                + "    \"created_at\": \"2016-10-31T15:33:33-07:00\",\n"
-                + "    \"modified_at\": \"2016-11-31T15:33:33-07:00\"\n"
-                + "  }\n"
-                + "}");
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
-
-        BoxWatermark watermark = new BoxFile(api, "0").applyWatermark();
-        Assert.assertEquals(createdAt, watermark.getCreatedAt());
-        Assert.assertEquals(modifiedAt, watermark.getModifiedAt());
-    }
-
-    /**
-     * Unit test for {@link BoxFile#removeWatermark()}
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testRemoveWatermarkSendsCorrectRequest() {
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals("https://api.box.com/2.0/files/0/watermark",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{}";
-                    }
-                };
-            }
-        });
-
-        new BoxFile(api, "0").removeWatermark();
-    }
-
-    /**
-     * Unit test for {@link BoxFile#getAllMetadata(String...)}.
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testGetAllMetadataSendsCorrectRequest() {
-        final BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public BoxAPIResponse onRequest(BoxAPIRequest request) {
-                Assert.assertEquals(
-                        "https://api.box.com/2.0/files/5010739061/metadata?fields=name%2Cdescription&limit=100",
-                        request.getUrl().toString());
-                return new BoxJSONResponse() {
-                    @Override
-                    public String getJSON() {
-                        return "{\"entries\": []}";
-                    }
-                };
-            }
-        });
-
-        BoxFile file = new BoxFile(api, "5010739061");
-        Iterator<Metadata> iterator = file.getAllMetadata("name", "description").iterator();
-        iterator.hasNext();
-    }
-
-    /**
-     * Unit test for {@link BoxFile#getAllMetadata(String...)}.
-     */
-    @Test
-    @Category(UnitTest.class)
-    public void testGetAllMetadateParseAllFieldsCorrectly() {
-        final String firstEntrycurrentDocumentStage = "Init";
-        final String firstEntryType = "documentFlow-452b4c9d-c3ad-4ac7-b1ad-9d5192f2fc5f";
-        final String firstEntryParent = "file_5010739061";
-        final String firstEntryID = "50ba0dba-0f89-4395-b867-3e057c1f6ed9";
-        final int firstEntryVersion = 4;
-        final int firstEntryTypeVersion = 2;
-        final String firstEntryNeedApprovalFrom = "Smith";
-        final String firstEntryTemplate = "documentFlow";
-        final String firstEntryScope = "enterprise_12345";
-        final String secondEntryType = "productInfo-9d7b6993-b09e-4e52-b197-e42f0ea995b9";
-        final String secondEntryParent = "file_5010739061";
-        final String secondEntryID = "15d1014a-06c2-47ad-9916-014eab456194";
-        final int secondEntryVersion = 2;
-        final int secondEntryTypeVersion = 1;
-        final int secondEntrySkuNumber = 45334223;
-        final String secondEntryDescription = "Watch";
-        final String secondEntryTemplate = "productInfo";
-        final String secondEntryScope = "enterprise_12345";
-
-        final JsonObject fakeJSONResponse = JsonObject.readFrom("{\n"
-                + "    \"entries\": [\n"
-                + "        {\n"
-                + "            \"currentDocumentStage\": \"Init\",\n"
-                + "            \"$type\": \"documentFlow-452b4c9d-c3ad-4ac7-b1ad-9d5192f2fc5f\",\n"
-                + "            \"$parent\": \"file_5010739061\",\n"
-                + "            \"$id\": \"50ba0dba-0f89-4395-b867-3e057c1f6ed9\",\n"
-                + "            \"$version\": 4,\n"
-                + "            \"$typeVersion\": 2,\n"
-                + "            \"needsApprovalFrom\": \"Smith\",\n"
-                + "            \"$template\": \"documentFlow\",\n"
-                + "            \"$scope\": \"enterprise_12345\"\n"
-                + "        },\n"
-                + "        {\n"
-                + "            \"$type\": \"productInfo-9d7b6993-b09e-4e52-b197-e42f0ea995b9\",\n"
-                + "            \"$parent\": \"file_5010739061\",\n"
-                + "            \"$id\": \"15d1014a-06c2-47ad-9916-014eab456194\",\n"
-                + "            \"$version\": 2,\n"
-                + "            \"$typeVersion\": 1,\n"
-                + "            \"skuNumber\": 45334223,\n"
-                + "            \"description\": \"Watch\",\n"
-                + "            \"$template\": \"productInfo\",\n"
-                + "            \"$scope\": \"enterprise_12345\"\n"
-                + "        }\n"
-                + "\n"
-                + "    ],\n"
-                + "    \"limit\": 100\n"
-                + "}");
-
-        BoxAPIConnection api = new BoxAPIConnection("");
-        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeJSONResponse));
-
-        BoxFile file = new BoxFile(api, "0");
-        Iterator<Metadata> iterator = file.getAllMetadata().iterator();
-        Metadata entry = iterator.next();
-        Assert.assertEquals(firstEntrycurrentDocumentStage, entry.get("/currentDocumentStage"));
-        Assert.assertEquals(firstEntryType, entry.getTypeName());
-        Assert.assertEquals(firstEntryParent, entry.getParentID());
-        Assert.assertEquals(firstEntryID, entry.getID());
-        Assert.assertEquals(firstEntryVersion, (int) Integer.valueOf(entry.get("/$version")));
-        Assert.assertEquals(firstEntryTypeVersion, (int) Integer.valueOf(entry.get("/$typeVersion")));
-        Assert.assertEquals(firstEntryNeedApprovalFrom, entry.get("/needsApprovalFrom"));
-        Assert.assertEquals(firstEntryTemplate, entry.getTemplateName());
-        Assert.assertEquals(firstEntryScope, entry.getScope());
-        entry = iterator.next();
-        Assert.assertEquals(secondEntryType, entry.getTypeName());
-        Assert.assertEquals(secondEntryParent, entry.getParentID());
-        Assert.assertEquals(secondEntryID, entry.getID());
-        Assert.assertEquals(secondEntryVersion, (int) Integer.valueOf(entry.get("/$version")));
-        Assert.assertEquals(secondEntryTypeVersion, (int) Integer.valueOf(entry.get("/$typeVersion")));
-        Assert.assertEquals(secondEntrySkuNumber, (int) Integer.valueOf(entry.get("/skuNumber")));
-        Assert.assertEquals(secondEntryDescription, entry.get("/description"));
-        Assert.assertEquals(secondEntryTemplate, entry.getTemplateName());
-        Assert.assertEquals(secondEntryScope, entry.getScope());
-
+    @Category(IntegrationTest.class)
+    public void getInfoWithRepresentationsIntegrationTestWithComplexHint() throws MalformedURLException {
+        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
+        BoxFile file = new BoxFile(api, "135907614435");
+        List<Representation> representations = file.getInfoWithRepresentations(
+                "[jpg,png?dimensions=1024x1024][pdf]").getRepresentations();
+        Assert.assertTrue("There should be at least one representation", representations.size() > 0);
     }
 
     @Test
@@ -405,7 +87,8 @@ public class BoxFileTest {
 
         InputStream uploadStream = new FileInputStream(filePath);
         ProgressListener mockUploadListener = mock(ProgressListener.class);
-        BoxFile.Info uploadedFileInfo = rootFolder.uploadFile(uploadStream, fileName, fileSize, mockUploadListener);
+        BoxFile.Info uploadedFileInfo = rootFolder.uploadFile(uploadStream,
+                BoxFileTest.generateString(), fileSize, mockUploadListener);
         BoxFile uploadedFile = uploadedFileInfo.getResource();
 
         ByteArrayOutputStream downloadStream = new ByteArrayOutputStream();
@@ -453,14 +136,46 @@ public class BoxFileTest {
     @Test
     @Category(IntegrationTest.class)
     public void uploadAndDownloadMultipleVersionsSucceeds() throws UnsupportedEncodingException {
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
+        BoxFile uploadedFile = null;
         String fileName = "[uploadAndDownloadMultipleVersionsSucceeds] Multi-version File.txt";
         String version1Content = "Version 1";
         String version1Sha = "db3cbc01da600701b9fe4a497fe328e71fa7022f";
-        byte[] version1Bytes = version1Content.getBytes(StandardCharsets.UTF_8);
-        long version1Size = version1Bytes.length;
         String version2Content = "Version 2";
+        ProgressListener mockUploadListener = mock(ProgressListener.class);
+        try {
+            uploadedFile = BoxFileTest.createAndUpdateFileHelper(fileName, version1Content,
+                    version2Content, mockUploadListener);
+            Collection<BoxFileVersion> versions = uploadedFile.getVersions();
+            BoxFileVersion previousVersion = versions.iterator().next();
+
+            ByteArrayOutputStream downloadStream = new ByteArrayOutputStream();
+            ProgressListener mockDownloadListener = mock(ProgressListener.class);
+            previousVersion.download(downloadStream, mockDownloadListener);
+            String downloadedContent = downloadStream.toString(StandardCharsets.UTF_8.name());
+
+            assertThat(versions, hasSize(1));
+            assertThat(previousVersion.getSha1(), is(equalTo(version1Sha)));
+            assertThat(downloadedContent, equalTo(version1Content));
+            verify(mockDownloadListener, atLeastOnce()).onProgressChanged(anyLong(), anyLong());
+            long version1Size = version1Content.getBytes(StandardCharsets.UTF_8).length;
+            verify(mockUploadListener, atLeastOnce()).onProgressChanged(anyLong(),
+                    longThat(is(equalTo(version1Size))));
+
+        } finally {
+            if (uploadedFile != null) {
+                uploadedFile.delete();
+            }
+        }
+    }
+
+    protected static BoxFile createAndUpdateFileHelper(String fileName, String version1Content,
+                                                       String version2Content, ProgressListener mockUploadListener) {
+        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
+        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
+
+        byte[] version1Bytes = version1Content.getBytes(StandardCharsets.UTF_8);
+
+
         byte[] version2Bytes = version2Content.getBytes(StandardCharsets.UTF_8);
         long version2Size = version1Bytes.length;
 
@@ -468,24 +183,8 @@ public class BoxFileTest {
         BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
 
         uploadStream = new ByteArrayInputStream(version2Bytes);
-        ProgressListener mockUploadListener = mock(ProgressListener.class);
-        uploadedFile.uploadVersion(uploadStream, null, version2Size, mockUploadListener);
-
-        Collection<BoxFileVersion> versions = uploadedFile.getVersions();
-        BoxFileVersion previousVersion = versions.iterator().next();
-
-        ByteArrayOutputStream downloadStream = new ByteArrayOutputStream();
-        ProgressListener mockDownloadListener = mock(ProgressListener.class);
-        previousVersion.download(downloadStream, mockDownloadListener);
-        String downloadedContent = downloadStream.toString(StandardCharsets.UTF_8.name());
-
-        assertThat(versions, hasSize(1));
-        assertThat(previousVersion.getSha1(), is(equalTo(version1Sha)));
-        assertThat(downloadedContent, equalTo(version1Content));
-        verify(mockDownloadListener, atLeastOnce()).onProgressChanged(anyLong(), anyLong());
-        verify(mockUploadListener, atLeastOnce()).onProgressChanged(anyLong(), longThat(is(equalTo(version1Size))));
-
-        uploadedFile.delete();
+        uploadedFile.uploadNewVersion(uploadStream, null, version2Size, mockUploadListener);
+        return uploadedFile;
     }
 
     @Test
@@ -513,7 +212,7 @@ public class BoxFileTest {
     public void fileLockAndUnlockSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[getInfoWithOnlyTheLockField] Test File.txt";
+        String fileName = "[getInfoWithOnlyTheLockField] Test File" + Calendar.getInstance().getTimeInMillis() + ".txt";
         String fileContent = "Test file";
         byte[] fileBytes = fileContent.getBytes(StandardCharsets.UTF_8);
 
@@ -537,6 +236,30 @@ public class BoxFileTest {
 
         BoxFile.Info updatedFileInfo = uploadedFile.getInfo("lock");
         assertThat(updatedFileInfo.getLock(), is(nullValue()));
+
+        uploadedFile.lock(true);
+
+        uploadedFileInfo = uploadedFile.getInfo("lock", "created_by");
+        fileLock = uploadedFileInfo.getLock();
+
+        assertThat(fileLock, is(instanceOf(BoxLock.class)));
+        assertNull(fileLock.getExpiresAt());
+        assertThat(fileLock.getIsDownloadPrevented(), is(equalTo(true)));
+        assertThat(fileLock.getCreatedBy().getID(), is(equalTo(uploadedFileInfo.getCreatedBy().getID())));
+
+        uploadedFile.unlock();
+
+        uploadedFile.lock();
+
+        uploadedFileInfo = uploadedFile.getInfo("lock", "created_by");
+        fileLock = uploadedFileInfo.getLock();
+
+        assertThat(fileLock, is(instanceOf(BoxLock.class)));
+        assertNull(fileLock.getExpiresAt());
+        assertThat(fileLock.getIsDownloadPrevented(), is(equalTo(false)));
+        assertThat(fileLock.getCreatedBy().getID(), is(equalTo(uploadedFileInfo.getCreatedBy().getID())));
+
+        uploadedFile.unlock();
 
         updatedFileInfo.getResource().delete();
     }
@@ -608,6 +331,48 @@ public class BoxFileTest {
     }
 
     @Test
+    @Category(UnitTest.class)
+    public void getAndSetTags() {
+
+        JsonObject fakeResponse = new JsonObject();
+        fakeResponse.add("type", "file");
+        fakeResponse.add("id", "1234");
+        JsonArray tagsJSON = new JsonArray();
+        tagsJSON.add("foo");
+        tagsJSON.add("bar");
+        fakeResponse.add("tags", tagsJSON);
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.setRequestInterceptor(JSONRequestInterceptor.respondWith(fakeResponse));
+
+        BoxFile file = new BoxFile(api, "1234");
+        BoxFile.Info info = file.getInfo();
+        List<String> tags = info.getTags();
+        Assert.assertEquals("foo", tags.get(0));
+        Assert.assertEquals("bar", tags.get(1));
+
+        tags.add("baz");
+        info.setTags(tags);
+
+        api.setRequestInterceptor(new JSONRequestInterceptor() {
+            @Override
+            protected BoxAPIResponse onJSONRequest(BoxJSONRequest request, JsonObject json) {
+                Assert.assertEquals("foo", json.get("tags").asArray().get(0).asString());
+                Assert.assertEquals("bar", json.get("tags").asArray().get(1).asString());
+                Assert.assertEquals("baz", json.get("tags").asArray().get(2).asString());
+                return new BoxJSONResponse() {
+                    @Override
+                    public String getJSON() {
+                        return "{}";
+                    }
+                };
+            }
+        });
+
+        file.updateInfo(info);
+    }
+
+    @Test
     @Category(IntegrationTest.class)
     public void deleteVersionSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
@@ -619,7 +384,7 @@ public class BoxFileTest {
         InputStream uploadStream = new ByteArrayInputStream(version1Bytes);
         BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
         uploadStream = new ByteArrayInputStream(version2Bytes);
-        uploadedFile.uploadVersion(uploadStream);
+        uploadedFile.uploadNewVersion(uploadStream);
 
         Collection<BoxFileVersion> versions = uploadedFile.getVersions();
         BoxFileVersion previousVersion = versions.iterator().next();
@@ -640,7 +405,7 @@ public class BoxFileTest {
         InputStream uploadStream = new ByteArrayInputStream(version1Bytes);
         BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
         uploadStream = new ByteArrayInputStream(version2Bytes);
-        uploadedFile.uploadVersion(uploadStream);
+        uploadedFile.uploadNewVersion(uploadStream);
 
         Collection<BoxFileVersion> versions = uploadedFile.getVersions();
         BoxFileVersion previousVersion = versions.iterator().next();
@@ -661,7 +426,8 @@ public class BoxFileTest {
     public void promoteVersionsSucceeds() throws UnsupportedEncodingException {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[promoteVersionsSucceeds] Multi-version File.txt";
+        String fileName = "[promoteVersionsSucceeds] Multi-version File " + Calendar.getInstance().getTimeInMillis()
+                + ".txt";
         String version1Content = "Version 1";
         byte[] version1Bytes = version1Content.getBytes(StandardCharsets.UTF_8);
         byte[] version2Bytes = "Version 2".getBytes(StandardCharsets.UTF_8);
@@ -669,7 +435,7 @@ public class BoxFileTest {
         InputStream uploadStream = new ByteArrayInputStream(version1Bytes);
         BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
         uploadStream = new ByteArrayInputStream(version2Bytes);
-        uploadedFile.uploadVersion(uploadStream);
+        uploadedFile.uploadNewVersion(uploadStream);
 
         Collection<BoxFileVersion> versions = uploadedFile.getVersions();
         BoxFileVersion previousVersion = versions.iterator().next();
@@ -762,7 +528,7 @@ public class BoxFileTest {
     public void addCommentSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[addCommentSucceeds] Test File.txt";
+        String fileName = "[addCommentSucceeds] Test File " + Calendar.getInstance().getTimeInMillis() + ".txt";
         byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
         String commentMessage = "Non-empty message";
 
@@ -780,7 +546,7 @@ public class BoxFileTest {
     public void addCommentWithMentionSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[addCommentSucceeds] Test File.txt";
+        String fileName = "[addCommentSucceeds] Test File " + Calendar.getInstance().getTimeInMillis() + ".txt";
         byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
         String commentMessage = String.format("Message mentioning @[%s:%s]", TestConfig.getCollaboratorID(),
                 TestConfig.getCollaborator());
@@ -799,7 +565,7 @@ public class BoxFileTest {
 
     @Test
     @Category(IntegrationTest.class)
-    public void createMetadataSucceeds() {
+    public void createMetadataAndGetMetadataOnInfoSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
         String fileName = "[createMetadataSucceeds] Test File.txt";
@@ -807,13 +573,20 @@ public class BoxFileTest {
 
         InputStream uploadStream = new ByteArrayInputStream(fileBytes);
         BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
-        uploadedFile.createMetadata(new Metadata().add("/foo", "bar"));
+        try {
+            uploadedFile.createMetadata(new Metadata().add("/foo", "bar"));
 
-        Metadata check1 = uploadedFile.getMetadata();
-        Assert.assertNotNull(check1);
-        Assert.assertEquals("bar", check1.get("/foo"));
+            Metadata check1 = uploadedFile.getMetadata();
+            Assert.assertNotNull(check1);
+            Assert.assertEquals("bar", check1.getString("/foo"));
 
-        uploadedFile.delete();
+            Metadata actualMD = uploadedFile.getInfo("metadata.global.properties").getMetadata("properties", "global");
+            assertNotNull("Metadata should not be null for this file", actualMD);
+        } catch (BoxAPIException e) {
+            fail("Metadata should have been present on this folder");
+        } finally {
+            uploadedFile.delete();
+        }
     }
 
     @Test
@@ -830,13 +603,13 @@ public class BoxFileTest {
 
         Metadata check1 = uploadedFile.getMetadata();
         Assert.assertNotNull(check1);
-        Assert.assertEquals("bar", check1.get("/foo"));
+        Assert.assertEquals("bar", check1.getString("/foo"));
 
         uploadedFile.updateMetadata(check1.replace("/foo", "baz"));
 
         Metadata check2 = uploadedFile.getMetadata();
         Assert.assertNotNull(check2);
-        Assert.assertEquals("baz", check2.get("/foo"));
+        Assert.assertEquals("baz", check2.getString("/foo"));
 
         uploadedFile.delete();
     }
@@ -846,7 +619,7 @@ public class BoxFileTest {
     public void addTaskSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[addTaskSucceeds] Test File.txt";
+        String fileName = "[addTaskSucceeds] Test File " + Calendar.getInstance().getTimeInMillis() + ".txt";
         byte[] fileBytes = "Non-empty string".getBytes(StandardCharsets.UTF_8);
         String taskMessage = "Non-empty message";
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX");
@@ -926,7 +699,7 @@ public class BoxFileTest {
     public void setCollectionsSucceeds() {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        String fileName = "[setCollectionsSucceeds] Test File.txt";
+        String fileName = "[setCollectionsSucceeds] Test File " + Calendar.getInstance().getTimeInMillis() + ".txt";
         String fileContent = "Test file";
         byte[] fileBytes = fileContent.getBytes(StandardCharsets.UTF_8);
 
@@ -971,6 +744,42 @@ public class BoxFileTest {
     }
 
     @Test
+    @Category(UnitTest.class)
+    public void collaborateWithOptionalParamsSendsCorrectRequest() {
+
+        final String fileID = "983745";
+        final String collaboratorLogin = "boxer@example.com";
+        final BoxCollaboration.Role collaboratorRole = BoxCollaboration.Role.VIEWER;
+
+        BoxAPIConnection api = new BoxAPIConnection("");
+        api.setRequestInterceptor(new JSONRequestInterceptor() {
+            @Override
+            public BoxJSONResponse onJSONRequest(BoxJSONRequest request, JsonObject body) {
+                Assert.assertEquals(
+                        "https://api.box.com/2.0/collaborations?notify=true",
+                        request.getUrl().toString());
+                Assert.assertEquals("POST", request.getMethod());
+
+                Assert.assertEquals(fileID, body.get("item").asObject().get("id").asString());
+                Assert.assertEquals("file", body.get("item").asObject().get("type").asString());
+                Assert.assertEquals(collaboratorLogin, body.get("accessible_by").asObject().get("login").asString());
+                Assert.assertEquals("user", body.get("accessible_by").asObject().get("type").asString());
+                Assert.assertEquals(collaboratorRole.toJSONString(), body.get("role").asString());
+
+                return new BoxJSONResponse() {
+                    @Override
+                    public String getJSON() {
+                        return "{\"type\":\"collaboration\",\"id\":\"98763245\"}";
+                    }
+                };
+            }
+        });
+
+        BoxFile file = new BoxFile(api, fileID);
+        BoxCollaboration.Info collabInfo = file.collaborate(collaboratorLogin, collaboratorRole, true, true);
+    }
+
+    @Test
     @Category(IntegrationTest.class)
     public void uploadSessionCommitFlowSuccess() throws Exception {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
@@ -978,14 +787,14 @@ public class BoxFileTest {
 
         BoxFile uploadedFile = null;
         try {
-            String fileName = "Tamme-Lauri_tamm_suvepäeval.jpg";
-            URL fileURL = this.getClass().getResource("/sample-files/" + fileName);
+            URL fileURL = this.getClass().getResource("/sample-files/" + BoxFileTest.LARGE_FILE_NAME);
             String filePath = URLDecoder.decode(fileURL.getFile(), "utf-8");
             File file = new File(filePath);
             long fileSize = file.length();
 
             //Create the session
-            BoxFileUploadSession.Info session = this.createFileUploadSession(rootFolder, fileName, fileSize);
+            BoxFileUploadSession.Info session =
+                    this.createFileUploadSession(rootFolder, BoxFileTest.generateString(), fileSize);
 
             //Create the parts
             MessageDigest fileDigest = this.uploadParts(uploadedFile, session, fileSize);
@@ -1022,22 +831,21 @@ public class BoxFileTest {
         return session;
     }
 
-
     @Test
     @Category(IntegrationTest.class)
     public void uploadSessionVersionCommitFlowSuccess() throws Exception {
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
 
-        BoxFile.Info imageFileInfo = this.createImageFile(rootFolder);
+        BoxFile.Info fileInfo = this.createFile(rootFolder);
 
-        BoxFile uploadedFile = imageFileInfo.getResource();
+        BoxFile uploadedFile = fileInfo.getResource();
         try {
             //Create the session
-            BoxFileUploadSession.Info session = this.createFileUploadSession(uploadedFile, imageFileInfo.getSize());
+            BoxFileUploadSession.Info session = this.createFileUploadSession(uploadedFile, fileInfo.getSize());
 
             //Create the parts
-            MessageDigest fileDigest = this.uploadParts(uploadedFile, session, imageFileInfo.getSize());
+            MessageDigest fileDigest = this.uploadParts(uploadedFile, session, fileInfo.getSize());
 
             //List the session parts
             List<BoxFileUploadSessionPart> parts = this.listUploadSessionParts(session.getResource());
@@ -1045,7 +853,7 @@ public class BoxFileTest {
             byte[] digestBytes = fileDigest.digest();
             String digest = Base64.encode(digestBytes);
 
-            //Verify the delete session
+            //Verify the commit session
             uploadedFile = this.commitSession(session.getResource(), digest, parts);
         } finally {
             uploadedFile.delete();
@@ -1071,8 +879,12 @@ public class BoxFileTest {
 
     private MessageDigest uploadParts(BoxFile uploadedFile, BoxFileUploadSession.Info session,
                                       long fileSize) throws Exception {
+        return this.uploadParts(uploadedFile, session, fileSize, BoxFileTest.LARGE_FILE_NAME);
+    }
 
-        String fileName = "Tamme-Lauri_tamm_suvepäeval.jpg";
+    private MessageDigest uploadParts(BoxFile uploadedFile, BoxFileUploadSession.Info session,
+                                      long fileSize, String fileName) throws Exception {
+
         URL fileURL = this.getClass().getResource("/sample-files/" + fileName);
         String filePath = URLDecoder.decode(fileURL.getFile(), "utf-8");
         File file = new File(filePath);
@@ -1093,8 +905,11 @@ public class BoxFileTest {
                 canBreak = true;
             }
 
-            session.getResource().uploadPart(this.generateHex(), dis, offset, min, fileSize);
-
+            BoxFileUploadSessionPart part = session.getResource().uploadPart(dis, offset, (int) min, fileSize);
+            Assert.assertNotNull(part.getSha1());
+            Assert.assertNotNull(part.getPartId());
+            Assert.assertEquals(part.getOffset(), offset);
+            Assert.assertTrue(part.getSize() <= session.getPartSize());
             offset = offset + session.getPartSize();
             processed += min;
             if (canBreak) {
@@ -1116,9 +931,12 @@ public class BoxFileTest {
         return hex;
     }
 
-    private BoxFile.Info createImageFile(BoxFolder folder) throws IOException {
-        String fileName = "Tamme-Lauri_tamm_suvepäeval.jpg";
-        URL fileURL = this.getClass().getResource("/sample-files/" + fileName);
+    private BoxFile.Info createFile(BoxFolder folder) throws IOException {
+        return this.createFile(folder, BoxFileTest.generateString());
+    }
+
+    private BoxFile.Info createFile(BoxFolder folder, String fileName) throws IOException {
+        URL fileURL = this.getClass().getResource("/sample-files/" + BoxFileTest.LARGE_FILE_NAME);
         String filePath = URLDecoder.decode(fileURL.getFile(), "utf-8");
         File file = new File(filePath);
         long fileSize = file.length();
@@ -1134,8 +952,7 @@ public class BoxFileTest {
     @Test
     @Category(IntegrationTest.class)
     public void uploadSessionAbortFlowSuccess() throws Exception {
-        String fileName = "Tamme-Lauri_tamm_suvepäeval.jpg";
-        URL fileURL = this.getClass().getResource("/sample-files/" + fileName);
+        URL fileURL = this.getClass().getResource("/sample-files/" + BoxFileTest.LARGE_FILE_NAME);
         String filePath = URLDecoder.decode(fileURL.getFile(), "utf-8");
         File file = new File(filePath);
         long fileSize = file.length();
@@ -1148,7 +965,7 @@ public class BoxFileTest {
 
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, fileName).getResource();
+        BoxFile uploadedFile = rootFolder.uploadFile(uploadStream, BoxFileTest.generateString()).getResource();
         try {
             BoxFileUploadSession.Info session = uploadedFile.createUploadSession(fileBytes.length);
             Assert.assertNotNull(session.getUploadSessionId());
@@ -1174,10 +991,9 @@ public class BoxFileTest {
     }
 
     private List<BoxFileUploadSessionPart> listUploadSessionParts(BoxFileUploadSession session) {
-        BoxFileUploadSessionPartList list = session.listParts(null, 10);
+        BoxFileUploadSessionPartList list = session.listParts(0, 100);
 
-        List<BoxFileUploadSessionPart> parts = list.getParts();
-        Assert.assertEquals(parts.size(), 3);
+        List<BoxFileUploadSessionPart> parts = list.getEntries();
 
         return parts;
     }
@@ -1210,7 +1026,7 @@ public class BoxFileTest {
         }
     }
 
-    private static byte[] readAllBytes(String fileName) throws IOException {
+    protected static byte[] readAllBytes(String fileName) throws IOException {
         RandomAccessFile f = new RandomAccessFile(fileName, "r");
         byte[] b = new byte[(int) f.length()];
         f.read(b);
@@ -1219,38 +1035,440 @@ public class BoxFileTest {
 
     @Test
     @Category(IntegrationTest.class)
-    public void uploadLargeFile() throws Exception {
-        String fileName = "Tamme-Lauri_tamm_suvepäeval.jpg";
-        URL fileURL = this.getClass().getResource("/sample-files/" + fileName);
-        String filePath = URLDecoder.decode(fileURL.getFile(), "utf-8");
-        File file = new File(filePath);
-        FileInputStream stream = new FileInputStream(file);
-
-        BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
-        BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        BoxFile.Info fileUploaded = rootFolder.uploadLargeFile(stream, "tenmb", file.length());
-        Assert.assertNotNull(fileUploaded);
-
-        fileUploaded.getResource().delete();
-    }
-
-    @Test
-    @Category(IntegrationTest.class)
     public void uploadLargeFileVersion() throws Exception {
-        String fileName = "Tamme-Lauri_tamm_suvepäeval.jpg";
-        URL fileURL = this.getClass().getResource("/sample-files/" + fileName);
+        URL fileURL = this.getClass().getResource("/sample-files/" + BoxFileTest.LARGE_FILE_NAME);
         String filePath = URLDecoder.decode(fileURL.getFile(), "utf-8");
         File file = new File(filePath);
         FileInputStream stream = new FileInputStream(file);
 
         BoxAPIConnection api = new BoxAPIConnection(TestConfig.getAccessToken());
         BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-        BoxFile.Info uploadedFile = rootFolder.uploadFile(stream, "tenmb");
+        BoxFile.Info uploadedFile = rootFolder.uploadFile(stream, BoxFileTest.generateString());
 
         stream = new FileInputStream(file);
+
         BoxFile.Info fileVerion = uploadedFile.getResource().uploadLargeFile(stream, file.length());
         Assert.assertNotNull(fileVerion);
 
         fileVerion.getResource().delete();
     }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testGetFileInfoSucceeds() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID;
+        final String fileName = "Example.pdf";
+        final String pathCollectionName = "All Files";
+        final String createdByLogin = "test@user.com";
+        final String modifiedByName = "Test User";
+        final String ownedByID = "1111";
+
+        result = TestConfig.getFixture("BoxFile/GetFileInfo200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(fileURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxFile.Info info = file.getInfo();
+
+        Assert.assertEquals("file", info.getType());
+        Assert.assertEquals(fileID, info.getID());
+        Assert.assertEquals(fileName, info.getName());
+        Assert.assertEquals(pathCollectionName, info.getPathCollection().get(0).getName());
+        Assert.assertEquals(createdByLogin, info.getCreatedBy().getLogin());
+        Assert.assertEquals(modifiedByName, info.getModifiedBy().getName());
+        Assert.assertEquals(ownedByID, info.getOwnedBy().getID());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testGetTasksWithFields() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String tasksURL = "/files/" + fileID + "/tasks";
+
+        result = TestConfig.getFixture("BoxFile/GetFileTasksInfoWithFields200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(tasksURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        List<BoxTask.Info> tasks = file.getTasks("is_completed");
+        for (BoxTask.Info task : tasks) {
+            Assert.assertNotNull(task.isCompleted());
+        }
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testUpdateFileInformationSucceedsAndSendsCorrectJson() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID;
+        final String newFileName = "New File Name";
+        JsonObject updateObject = new JsonObject()
+                .add("name", newFileName);
+
+        result = TestConfig.getFixture("BoxFile/UpdateFileInfo200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.put(WireMock.urlPathEqualTo(fileURL))
+                .withRequestBody(WireMock.equalToJson(updateObject.toString()))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxFile.Info info = file.new Info();
+        info.setName(newFileName);
+        file.updateInfo(info);
+
+        Assert.assertEquals(newFileName, info.getName());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testCopyFileSucceedsAndSendsCorrectJson() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID + "/copy";
+        final String parentID = "0";
+        final String parentName = "All Files";
+        JsonObject innerObject = new JsonObject()
+                .add("id", "0");
+        JsonObject parentObject = new JsonObject()
+                .add("parent", innerObject);
+
+        result = TestConfig.getFixture("BoxFile/CopyFile200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.post(WireMock.urlPathEqualTo(fileURL))
+                .withRequestBody(WireMock.equalToJson(parentObject.toString()))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFolder rootFolder = BoxFolder.getRootFolder(this.api);
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxFile.Info copiedFileInfo = file.copy(rootFolder);
+
+        Assert.assertEquals(parentID, copiedFileInfo.getParent().getID());
+        Assert.assertEquals(parentName, copiedFileInfo.getParent().getName());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testMoveFileSucceedsAndSendsCorrectJson() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID;
+        final String newParentID = "1111";
+        final String newParentName = "Another Move Folder";
+        JsonObject moveObject = new JsonObject()
+                .add("id", newParentID);
+        JsonObject parentObject = new JsonObject()
+                .add("parent", moveObject);
+
+        result = TestConfig.getFixture("BoxFile/MoveFile200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.put(WireMock.urlPathEqualTo(fileURL))
+                .withRequestBody(WireMock.equalToJson(parentObject.toString()))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxFolder destinationFolder = new BoxFolder(this.api, newParentID);
+        BoxItem.Info fileInfo = file.move(destinationFolder);
+
+        Assert.assertEquals(newParentID, fileInfo.getParent().getID());
+        Assert.assertEquals(fileID, fileInfo.getID());
+        Assert.assertEquals(newParentName, fileInfo.getParent().getName());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testDeleteFileSucceeds() throws IOException {
+        final String fileID = "12345";
+        final String deleteFileURL = "/files/" + fileID;
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.delete(WireMock.urlPathEqualTo(deleteFileURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withStatus(204)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        file.delete();
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testLockFileSucceedsAndSendsCorrectJson() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID;
+        final boolean isDownloadPrevented = true;
+        final String lockID = "1111";
+        final String createdByLogin = "test@user.com";
+        final String createdByName = "Test User";
+
+        JsonObject innerObject = new JsonObject()
+                .add("type", "lock")
+                .add("is_download_prevented", "true");
+
+        JsonObject lockObject = new JsonObject()
+                .add("lock", innerObject);
+
+        result = TestConfig.getFixture("BoxFile/LockFile200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.put(WireMock.urlPathEqualTo(fileURL))
+                .withQueryParam("fields", WireMock.containing("lock"))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxLock fileLock = file.lock(true);
+
+        Assert.assertEquals(isDownloadPrevented, fileLock.getIsDownloadPrevented());
+        Assert.assertEquals(createdByLogin, fileLock.getCreatedBy().getLogin());
+        Assert.assertEquals(createdByName, fileLock.getCreatedBy().getName());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testUnlockFileSucceedsAndSendSendsCorrectJson() throws IOException {
+        String result = "";
+        String fileResult = "";
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID;
+        JsonObject unlockObject = new JsonObject()
+                .add("lock", JsonObject.NULL);
+
+        fileResult = TestConfig.getFixture("BoxFile/GetFileInfo200");
+
+        result = TestConfig.getFixture("BoxFile/UnlockFile200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(fileURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(fileResult)));
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.put(WireMock.urlPathEqualTo(fileURL))
+                .withQueryParam("fields", WireMock.containing("lock"))
+                .withRequestBody(WireMock.equalToJson(unlockObject.toString()))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        file.unlock();
+
+        Assert.assertEquals(fileID, file.getID());
+        Assert.assertEquals(null, file.getInfo().getLock());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testDeleteMetadataOnFileSucceeds() throws IOException {
+        final String fileID = "12345";
+        final String metadataURL = "/files/" + fileID + "/metadata/global/properties";
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.delete(WireMock.urlPathEqualTo(metadataURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withStatus(204)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        file.deleteMetadata();
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testGetThumbnailSucceeds() throws IOException {
+        final String fileID = "12345";
+        final String fileURL = "/files/" + fileID + "/thumbnail.jpg";
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(fileURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withStatus(200)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        byte[] thumbnail = file.getThumbnail(BoxFile.ThumbnailFileType.JPG, 256, 256, 256, 256);
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testDeletePreviousFileVersionSucceeds() throws IOException {
+        String result = "";
+        String versionResult = "";
+        final String versionID = "12345";
+        final String fileID = "1111";
+        final String fileURL = "/files/" + fileID + "/versions";
+        final String versionURL = "/files/" + fileID + "/versions/" + versionID;
+
+        result = TestConfig.getFixture("BoxFile/GetFileInfo200");
+
+        versionResult = TestConfig.getFixture("BoxFile/GetAllFileVersions200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(fileURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(fileURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(versionResult)));
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.delete(WireMock.urlPathEqualTo(versionURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withStatus(204)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        Collection<BoxFileVersion> versions = file.getVersions();
+        BoxFileVersion firstVersion = versions.iterator().next();
+        firstVersion.delete();
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testCreateMetadataOnFileSucceeds() throws IOException {
+        String result = "";
+        final String metadataID = "12345";
+        final String fileID = "12345";
+        final String template = "properties";
+        final String scope = "global";
+        final String metadataURL = "/files/" + fileID + "/metadata/global/properties";
+        JsonObject metadataObject = new JsonObject()
+                .add("foo", "bar");
+
+        result = TestConfig.getFixture("BoxFile/CreateMetadataOnFile201");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.post(WireMock.urlPathEqualTo(metadataURL))
+                .withRequestBody(WireMock.equalToJson(metadataObject.toString()))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        Metadata info = file.createMetadata(new Metadata().add("/foo", "bar"));
+
+        Assert.assertEquals(metadataID, info.getID());
+        Assert.assertEquals(scope, info.getScope());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testGetMetadataOnFileSucceeds() throws IOException {
+        String result = "";
+        final String fileID = "12345";
+        final String metadataID = "12345";
+        final String parent = "file_1111";
+        final String template = "properties";
+        final String scope = "global";
+        final String metadataURL = "/files/" + fileID + "/metadata/global/properties";
+
+        result = TestConfig.getFixture("BoxFile/GetMetadataOnFile200");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.get(WireMock.urlPathEqualTo(metadataURL))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        Metadata metadata = file.getMetadata();
+
+        Assert.assertEquals(metadataID, metadata.getID());
+        Assert.assertEquals(parent, metadata.getParentID());
+        Assert.assertEquals(template, metadata.getTemplateName());
+        Assert.assertEquals(scope, metadata.getScope());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void testUploadNewVersionReturnsCorrectInfo() throws IOException {
+
+        String result = "";
+        String fileID = "11111";
+        String fileName = "test.txt";
+        byte[] bytes = new byte[] {1, 2, 3};
+        InputStream fileContents = new ByteArrayInputStream(bytes);
+
+        result = TestConfig.getFixture("BoxFile/UploadNewVersion201");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.post(WireMock.urlPathEqualTo("/files/" + fileID + "/content"))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+
+        BoxFile.Info info = file.uploadNewVersion(fileContents);
+
+        Assert.assertEquals(fileID, info.getID());
+        Assert.assertEquals(fileName, info.getName());
+    }
+
+    @Test
+    @Category(UnitTest.class)
+    public void createSharedLinkSucceeds() throws IOException {
+        final String fileID = "1111";
+        final String password = "test1";
+        String result = "";
+
+        JsonObject permissionsObject = new JsonObject()
+                .add("can_download", true)
+                .add("can_preview", true);
+
+        JsonObject innerObject = new JsonObject()
+                .add("password", password)
+                .add("access", "open")
+                .add("permissions", permissionsObject);
+
+        JsonObject sharedLinkObject = new JsonObject()
+                .add("shared_link", innerObject);
+
+        result = TestConfig.getFixture("BoxSharedLink/CreateSharedLink201");
+
+        WIRE_MOCK_CLASS_RULE.stubFor(WireMock.put(WireMock.urlPathEqualTo("/files/" + fileID))
+                .withRequestBody(WireMock.equalToJson(sharedLinkObject.toString()))
+                .willReturn(WireMock.aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(result)));
+
+        BoxFile file = new BoxFile(this.api, fileID);
+        BoxSharedLink.Permissions permissions = new BoxSharedLink.Permissions();
+
+        permissions.setCanDownload(true);
+        permissions.setCanPreview(true);
+        BoxSharedLink sharedLink = file.createSharedLink(BoxSharedLink.Access.OPEN, null, permissions,
+                password);
+        Assert.assertEquals(true, sharedLink.getIsPasswordEnabled());
+    }
+
+    private BoxFile.Info parallelMuliputUpload(File file, BoxFolder folder, String fileName)
+            throws IOException, InterruptedException {
+        FileInputStream newStream = new FileInputStream(file);
+        return folder.uploadLargeFile(newStream, BoxFileTest.generateString(), file.length());
+    }
+
+    protected static String generateString() {
+        Random rng = new Random();
+        String characters = "abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        int length = 10;
+        char[] text = new char[length];
+        for (int i = 0; i < length; i++) {
+            text[i] = characters.charAt(rng.nextInt(characters.length()));
+        }
+        return new String(text);
+    }
 }
+
+

@@ -7,6 +7,7 @@ import java.net.HttpURLConnection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.zip.GZIPInputStream;
@@ -27,6 +28,8 @@ public class BoxAPIResponse {
     private static final int BUFFER_SIZE = 8192;
 
     private final HttpURLConnection connection;
+    //Batch API Response will have headers in response body
+    private final Map<String, String> headers;
 
     private int responseCode;
     private String bodyString;
@@ -48,6 +51,18 @@ public class BoxAPIResponse {
      */
     public BoxAPIResponse() {
         this.connection = null;
+        this.headers = null;
+    }
+
+    /**
+     * Constructs a BoxAPIResponse with a http response code and response headers.
+     * @param responseCode http response code
+     * @param headers map of headers
+     */
+    public BoxAPIResponse(int responseCode, Map<String, String> headers) {
+        this.connection = null;
+        this.responseCode = responseCode;
+        this.headers = headers;
     }
 
     /**
@@ -64,10 +79,17 @@ public class BoxAPIResponse {
             throw new BoxAPIException("Couldn't connect to the Box API due to a network error.", e);
         }
 
+        Map<String, String> responseHeaders = new TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER);
+        for (String headerKey : connection.getHeaderFields().keySet()) {
+            if (headerKey != null) {
+                responseHeaders.put(headerKey, connection.getHeaderField(headerKey));
+            }
+        }
+        this.headers = responseHeaders;
+
         if (!isSuccess(this.responseCode)) {
             this.logResponse();
-            throw new BoxAPIException("The API returned an error code: " + this.responseCode, this.responseCode,
-                this.bodyToString());
+            throw new BoxAPIResponseException("The API returned an error code", this);
         }
 
         this.logResponse();
@@ -95,7 +117,16 @@ public class BoxAPIResponse {
      * @return value of the header.
      */
     public String getHeaderField(String fieldName) {
-        return this.connection.getHeaderField(fieldName);
+        // headers map is null for all regular response calls except when made as a batch request
+        if (this.headers == null) {
+            if (this.connection != null) {
+                return this.connection.getHeaderField(fieldName);
+            } else {
+                return null;
+            }
+        } else {
+            return this.headers.get(fieldName);
+        }
     }
 
     /**
@@ -168,6 +199,14 @@ public class BoxAPIResponse {
             throw new BoxAPIException("Couldn't finish closing the connection to the Box API due to a network error or "
                 + "because the stream was already closed.", e);
         }
+    }
+
+    /**
+     *
+     * @return A Map containg headers on this Box API Response.
+     */
+    public Map<String, String> getHeaders() {
+        return this.headers;
     }
 
     @Override

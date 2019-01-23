@@ -5,17 +5,29 @@ import java.io.StringReader;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.PrivateKey;
+import java.security.Security;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
 
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMDecryptorProvider;
 import org.bouncycastle.openssl.PEMEncryptedKeyPair;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
+import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder;
 import org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder;
+import org.bouncycastle.operator.InputDecryptorProvider;
+import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo;
+import org.bouncycastle.pkcs.PKCSException;
 import org.jose4j.jws.AlgorithmIdentifiers;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
+import org.jose4j.jwt.NumericDate;
 import org.jose4j.lang.JoseException;
 
 import com.eclipsesource.json.JsonObject;
@@ -40,12 +52,16 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
 
     private IAccessTokenCache accessTokenCache;
 
+    static {
+        Security.addProvider(new BouncyCastleProvider());
+    }
+
     /**
      * Disabling an invalid constructor for Box Developer Edition.
      * @param  accessToken  an initial access token to use for authenticating with the API.
      */
-    public BoxDeveloperEditionAPIConnection(String accessToken) {
-        super(null);
+    private BoxDeveloperEditionAPIConnection(String accessToken) {
+        super(accessToken);
         throw new BoxAPIException("This constructor is not available for BoxDeveloperEditionAPIConnection.");
     }
 
@@ -56,10 +72,9 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
      * @param  accessToken  an initial access token to use for authenticating with the API.
      * @param  refreshToken an initial refresh token to use when refreshing the access token.
      */
-    public BoxDeveloperEditionAPIConnection(String clientID, String clientSecret, String accessToken,
+    private BoxDeveloperEditionAPIConnection(String clientID, String clientSecret, String accessToken,
         String refreshToken) {
-
-        super(null);
+        super(accessToken);
         throw new BoxAPIException("This constructor is not available for BoxDeveloperEditionAPIConnection.");
     }
 
@@ -69,8 +84,8 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
      * @param  clientSecret the client secret to use when exchanging the auth code for an access token.
      * @param  authCode     an auth code obtained from the first half of the OAuth process.
      */
-    public BoxDeveloperEditionAPIConnection(String clientID, String clientSecret, String authCode) {
-        super(null);
+    private BoxDeveloperEditionAPIConnection(String clientID, String clientSecret, String authCode) {
+        super(clientID, clientSecret, authCode);
         throw new BoxAPIException("This constructor is not available for BoxDeveloperEditionAPIConnection.");
     }
 
@@ -79,8 +94,8 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
      * @param  clientID     the client ID to use when requesting an access token.
      * @param  clientSecret the client secret to use when requesting an access token.
      */
-    public BoxDeveloperEditionAPIConnection(String clientID, String clientSecret) {
-        super(null);
+    private BoxDeveloperEditionAPIConnection(String clientID, String clientSecret) {
+        super(clientID, clientSecret);
         throw new BoxAPIException("This constructor is not available for BoxDeveloperEditionAPIConnection.");
     }
 
@@ -129,6 +144,21 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
     }
 
     /**
+     * Constructs a new BoxDeveloperEditionAPIConnection.
+     * @param entityId             enterprise ID or a user ID.
+     * @param entityType           the type of entityId.
+     * @param boxConfig            box configuration settings object
+     * @param accessTokenCache      the cache for storing access token information (to minimize fetching new tokens)
+     *
+     */
+    public BoxDeveloperEditionAPIConnection(String entityId, DeveloperEditionEntityType entityType,
+        BoxConfig boxConfig, IAccessTokenCache accessTokenCache) {
+
+        this(entityId, entityType, boxConfig.getClientId(), boxConfig.getClientSecret(),
+            boxConfig.getJWTEncryptionPreferences(), accessTokenCache);
+    }
+
+    /**
      * Creates a new Box Developer Edition connection with enterprise token.
      * @param enterpriseId          the enterprise ID to use for requesting access token.
      * @param clientId              the client ID to use when exchanging the JWT assertion for an access token.
@@ -167,6 +197,35 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
                 DeveloperEditionEntityType.ENTERPRISE, clientId, clientSecret, encryptionPref, accessTokenCache);
 
         connection.tryRestoreUsingAccessTokenCache();
+
+        return connection;
+    }
+
+    /**
+     * Creates a new Box Developer Edition connection with enterprise token leveraging BoxConfig.
+     * @param boxConfig             box configuration settings object
+     * @return a new instance of BoxAPIConnection.
+     */
+    public static BoxDeveloperEditionAPIConnection getAppEnterpriseConnection(BoxConfig boxConfig) {
+
+        BoxDeveloperEditionAPIConnection connection = getAppEnterpriseConnection(boxConfig.getEnterpriseId(),
+                boxConfig.getClientId(), boxConfig.getClientSecret(), boxConfig.getJWTEncryptionPreferences());
+
+        return connection;
+    }
+
+    /**
+     * Creates a new Box Developer Edition connection with enterprise token leveraging BoxConfig and access token cache.
+     * @param boxConfig             box configuration settings object
+     * @param accessTokenCache      the cache for storing access token information (to minimize fetching new tokens)
+     * @return a new instance of BoxAPIConnection.
+     */
+    public static BoxDeveloperEditionAPIConnection getAppEnterpriseConnection(BoxConfig boxConfig,
+                                                                              IAccessTokenCache accessTokenCache) {
+
+        BoxDeveloperEditionAPIConnection connection = getAppEnterpriseConnection(boxConfig.getEnterpriseId(),
+                boxConfig.getClientId(), boxConfig.getClientSecret(), boxConfig.getJWTEncryptionPreferences(),
+                accessTokenCache);
 
         return connection;
     }
@@ -215,6 +274,30 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
     }
 
     /**
+     * Creates a new Box Developer Edition connection with App User token levaraging BoxConfig.
+     * @param userId                the user ID to use for an App User.
+     * @param boxConfig             box configuration settings object
+     * @return a new instance of BoxAPIConnection.
+     */
+    public static BoxDeveloperEditionAPIConnection getAppUserConnection(String userId, BoxConfig boxConfig) {
+        return getAppUserConnection(userId, boxConfig.getClientId(), boxConfig.getClientSecret(),
+                boxConfig.getJWTEncryptionPreferences());
+    }
+
+    /**
+     * Creates a new Box Developer Edition connection with App User token leveraging BoxConfig and access token cache.
+     * @param userId                the user ID to use for an App User.
+     * @param boxConfig             box configuration settings object
+     * @param accessTokenCache      the cache for storing access token information (to minimize fetching new tokens)
+     * @return a new instance of BoxAPIConnection.
+     */
+    public static BoxDeveloperEditionAPIConnection getAppUserConnection(String userId, BoxConfig boxConfig,
+                                                                        IAccessTokenCache accessTokenCache) {
+        return getAppUserConnection(userId, boxConfig.getClientId(), boxConfig.getClientSecret(),
+                boxConfig.getJWTEncryptionPreferences(), accessTokenCache);
+    }
+
+    /**
      * Disabling the non-Box Developer Edition authenticate method.
      * @param authCode an auth code obtained from the first half of the OAuth process.
      */
@@ -242,8 +325,39 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
         request.shouldAuthenticate(false);
         request.setBody(urlParameters);
 
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        String json = response.getJSON();
+        String json;
+        try {
+            BoxJSONResponse response = (BoxJSONResponse) request.send();
+            json = response.getJSON();
+        } catch (BoxAPIException ex) {
+            // Use the Date advertised by the Box server as the current time to synchronize clocks
+            List<String> responseDates = ex.getHeaders().get("Date");
+            NumericDate currentTime;
+            if (responseDates != null) {
+                String responseDate = responseDates.get(0);
+                SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss zzz");
+                try {
+                    Date date = dateFormat.parse(responseDate);
+                    currentTime = NumericDate.fromMilliseconds(date.getTime());
+                } catch (ParseException e) {
+                    currentTime = NumericDate.now();
+                }
+            } else {
+                currentTime = NumericDate.now();
+            }
+
+            // Reconstruct the JWT assertion, which regenerates the jti claim, with the new "current" time
+            jwtAssertion = this.constructJWTAssertion(currentTime);
+            urlParameters = String.format(JWT_GRANT_TYPE, this.getClientID(), this.getClientSecret(), jwtAssertion);
+
+            // Re-send the updated request
+            request = new BoxAPIRequest(this, url, "POST");
+            request.shouldAuthenticate(false);
+            request.setBody(urlParameters);
+
+            BoxJSONResponse response = (BoxJSONResponse) request.send();
+            json = response.getJSON();
+        }
 
         JsonObject jsonObject = JsonObject.readFrom(json);
         this.setAccessToken(jsonObject.get("access_token").asString());
@@ -314,10 +428,19 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
     }
 
     private String constructJWTAssertion() {
+        return this.constructJWTAssertion(null);
+    }
+
+    private String constructJWTAssertion(NumericDate now) {
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(this.getClientID());
         claims.setAudience(JWT_AUDIENCE);
-        claims.setExpirationTimeMinutesInTheFuture(1.0f);
+        if (now == null) {
+            claims.setExpirationTimeMinutesInTheFuture(0.5f);
+        } else {
+            now.addSeconds(30L);
+            claims.setExpirationTime(now);
+        }
         claims.setSubject(this.entityID);
         claims.setClaim("box_sub_type", this.entityType.toString());
         claims.setGeneratedJwtId(64);
@@ -360,25 +483,37 @@ public class BoxDeveloperEditionAPIConnection extends BoxAPIConnection {
     }
 
     private PrivateKey decryptPrivateKey() {
-        PrivateKey decryptedPrivateKey;
-
+        PrivateKey decryptedPrivateKey = null;
         try {
             PEMParser keyReader = new PEMParser(new StringReader(this.privateKey));
             Object keyPair = keyReader.readObject();
             keyReader.close();
 
-            if (keyPair instanceof PEMEncryptedKeyPair) {
+            if (keyPair instanceof PrivateKeyInfo) {
+                PrivateKeyInfo keyInfo = (PrivateKeyInfo) keyPair;
+                decryptedPrivateKey = (new JcaPEMKeyConverter()).getPrivateKey(keyInfo);
+            } else if (keyPair instanceof PEMEncryptedKeyPair) {
                 JcePEMDecryptorProviderBuilder builder = new JcePEMDecryptorProviderBuilder();
                 PEMDecryptorProvider decryptionProvider = builder.build(this.privateKeyPassword.toCharArray());
                 keyPair = ((PEMEncryptedKeyPair) keyPair).decryptKeyPair(decryptionProvider);
+                PrivateKeyInfo keyInfo = ((PEMKeyPair) keyPair).getPrivateKeyInfo();
+                decryptedPrivateKey = (new JcaPEMKeyConverter()).getPrivateKey(keyInfo);
+            } else if (keyPair instanceof PKCS8EncryptedPrivateKeyInfo) {
+                InputDecryptorProvider pkcs8Prov = new JceOpenSSLPKCS8DecryptorProviderBuilder().setProvider("BC")
+                    .build(this.privateKeyPassword.toCharArray());
+                PrivateKeyInfo keyInfo =  ((PKCS8EncryptedPrivateKeyInfo) keyPair).decryptPrivateKeyInfo(pkcs8Prov);
+                decryptedPrivateKey = (new JcaPEMKeyConverter()).getPrivateKey(keyInfo);
+            } else {
+                PrivateKeyInfo keyInfo = ((PEMKeyPair) keyPair).getPrivateKeyInfo();
+                decryptedPrivateKey = (new JcaPEMKeyConverter()).getPrivateKey(keyInfo);
             }
-
-            PrivateKeyInfo keyInfo = ((PEMKeyPair) keyPair).getPrivateKeyInfo();
-            decryptedPrivateKey = (new JcaPEMKeyConverter()).getPrivateKey(keyInfo);
         } catch (IOException e) {
             throw new BoxAPIException("Error parsing private key for Box Developer Edition.", e);
+        } catch (OperatorCreationException e) {
+            throw new BoxAPIException("Error parsing PKCS#8 private key for Box Developer Edition.", e);
+        } catch (PKCSException e) {
+            throw new BoxAPIException("Error parsing PKCS private key for Box Developer Edition.", e);
         }
-
         return decryptedPrivateKey;
     }
 

@@ -18,9 +18,17 @@ import com.eclipsesource.json.JsonValue;
  */
 @BoxResourceType("comment")
 public class BoxComment extends BoxResource {
+
+    /**
+     * Add Comment URL Template.
+     */
+    public static final URLTemplate ADD_COMMENT_URL_TEMPLATE = new URLTemplate("comments");
+    /**
+     * Comment URL Template.
+     */
+    public static final URLTemplate COMMENT_URL_TEMPLATE = new URLTemplate("comments/%s");
+
     private static final Pattern MENTION_REGEX = Pattern.compile("@\\[.+:.+\\]");
-    private static final URLTemplate ADD_COMMENT_URL_TEMPLATE = new URLTemplate("comments");
-    private static final URLTemplate COMMENT_URL_TEMPLATE = new URLTemplate("comments/%s");
 
     /**
      * Constructs a BoxComment for a comment with a given ID.
@@ -120,6 +128,7 @@ public class BoxComment extends BoxResource {
         private Date createdAt;
         private BoxResource.Info item;
         private BoxUser.Info modifiedBy;
+        private Date modifiedAt;
 
         /**
          * Constructs an empty Info object.
@@ -214,6 +223,14 @@ public class BoxComment extends BoxResource {
             return this.modifiedBy;
         }
 
+        /**
+         * Gets the time the comment was last modified.
+         * @return the time the comment was last modified.
+         */
+        public Date getModifiedAt() {
+            return this.modifiedAt;
+        }
+
         @Override
         public BoxComment getResource() {
             return BoxComment.this;
@@ -260,6 +277,8 @@ public class BoxComment extends BoxResource {
                     } else {
                         this.modifiedBy.update(userJSON);
                     }
+                } else if (memberName.equals("modified_at")) {
+                    this.modifiedAt = BoxDateFormat.parse(value.asString());
                 }
             } catch (ParseException e) {
                 assert false : "A ParseException indicates a bug in the SDK.";

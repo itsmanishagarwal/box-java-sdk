@@ -26,8 +26,14 @@ public class BoxWebLink extends BoxItem {
         "path_collection", "created_at", "modified_at", "trashed_at", "purged_at", "created_by", "modified_by",
         "owned_by", "shared_link", "parent", "item_status", "collections"};
 
-    private static final URLTemplate COPY_URL_TEMPLATE = new URLTemplate("web_links/%s/copy");
-    private static final URLTemplate WEB_LINK_URL_TEMPLATE = new URLTemplate("web_links/%s");
+    /**
+     * Copy URL Template.
+     */
+    public static final URLTemplate COPY_URL_TEMPLATE = new URLTemplate("web_links/%s/copy");
+    /**
+     * Web Link URL Template.
+     */
+    public static final URLTemplate WEB_LINK_URL_TEMPLATE = new URLTemplate("web_links/%s");
 
     /**
      * Constructs a BoxWebLink for a weblink with a given ID.
@@ -43,6 +49,26 @@ public class BoxWebLink extends BoxItem {
         BoxSharedLink.Permissions permissions) {
 
         BoxSharedLink sharedLink = new BoxSharedLink(access, unshareDate, permissions);
+        Info info = new Info();
+        info.setSharedLink(sharedLink);
+
+        this.updateInfo(info);
+        return info.getSharedLink();
+    }
+
+    /**
+     * Creates new SharedLink for a BoxWebLink with a password.
+     *
+     * @param access        The access level of the shared link.
+     * @param unshareDate   A specified date to unshare the Box web link.
+     * @param permissions   The permissions to set on the shared link for the Box web link.
+     * @param password      Password set on the shared link to give access to the Box web link.
+     * @return information about the newly created shared link.
+     */
+    public BoxSharedLink createSharedLink(BoxSharedLink.Access access, Date unshareDate,
+        BoxSharedLink.Permissions permissions, String password) {
+
+        BoxSharedLink sharedLink = new BoxSharedLink(access, unshareDate, permissions, password);
         Info info = new Info();
         info.setSharedLink(sharedLink);
 

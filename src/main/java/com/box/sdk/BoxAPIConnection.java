@@ -5,7 +5,9 @@ import java.net.Proxy;
 import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -22,12 +24,19 @@ public class BoxAPIConnection {
     /**
      * The default maximum number of times an API request will be tried when an error occurs.
      */
-    public static final int DEFAULT_MAX_ATTEMPTS = 3;
+    public static final int DEFAULT_MAX_ATTEMPTS = 5;
 
     private static final String AUTHORIZATION_URL = "https://account.box.com/api/oauth2/authorize";
     private static final String TOKEN_URL_STRING = "https://api.box.com/oauth2/token";
+    private static final String REVOKE_URL_STRING = "https://api.box.com/oauth2/revoke";
     private static final String DEFAULT_BASE_URL = "https://api.box.com/2.0/";
     private static final String DEFAULT_BASE_UPLOAD_URL = "https://upload.box.com/api/2.0/";
+
+    private static final String AS_USER_HEADER = "As-User";
+    private static final String BOX_NOTIFICATIONS_HEADER = "Box-Notifications";
+
+    private static final String JAVA_VERSION = System.getProperty("java.version");
+    private static final String SDK_VERSION = "2.26.0";
 
     /**
      * The amount of buffer time, in milliseconds, to use when determining if an access token should be refreshed. For
@@ -52,12 +61,16 @@ public class BoxAPIConnection {
     private String accessToken;
     private String refreshToken;
     private String tokenURL;
+    private String revokeURL;
     private String baseURL;
     private String baseUploadURL;
     private boolean autoRefresh;
     private int maxRequestAttempts;
+    private int connectTimeout;
+    private int readTimeout;
     private List<BoxAPIConnectionListener> listeners;
     private RequestInterceptor interceptor;
+    private Map<String, String> customHeaders;
 
     /**
      * Constructs a new BoxAPIConnection that authenticates with a developer or access token.
@@ -80,13 +93,17 @@ public class BoxAPIConnection {
         this.accessToken = accessToken;
         this.refreshToken = refreshToken;
         this.tokenURL = TOKEN_URL_STRING;
+        this.revokeURL = REVOKE_URL_STRING;
         this.baseURL = DEFAULT_BASE_URL;
         this.baseUploadURL = DEFAULT_BASE_UPLOAD_URL;
         this.autoRefresh = true;
-        this.maxRequestAttempts = DEFAULT_MAX_ATTEMPTS;
+        this.maxRequestAttempts = BoxGlobalSettings.getMaxRequestAttempts();
+        this.connectTimeout = BoxGlobalSettings.getConnectTimeout();
+        this.readTimeout = BoxGlobalSettings.getReadTimeout();
         this.refreshLock = new ReentrantReadWriteLock();
-        this.userAgent = "Box Java SDK v2.4.0";
+        this.userAgent = "Box Java SDK v" + SDK_VERSION + " (Java " + JAVA_VERSION + ")";
         this.listeners = new ArrayList<BoxAPIConnectionListener>();
+        this.customHeaders = new HashMap<String, String>();
     }
 
     /**
@@ -107,6 +124,14 @@ public class BoxAPIConnection {
      */
     public BoxAPIConnection(String clientID, String clientSecret) {
         this(clientID, clientSecret, null, null);
+    }
+
+    /**
+     * Constructs a new BoxAPIConnection levaraging BoxConfig.
+     * @param  boxConfig     BoxConfig file, which should have clientId and clientSecret
+     */
+    public BoxAPIConnection(BoxConfig boxConfig) {
+        this(boxConfig.getClientId(), boxConfig.getClientSecret(), null, null);
     }
 
     /**
@@ -237,6 +262,22 @@ public class BoxAPIConnection {
      */
     public void setTokenURL(String tokenURL) {
         this.tokenURL = tokenURL;
+    }
+
+    /**
+     * Set the URL used for token revocation.
+     * @param url The url to use.
+     */
+    public void setRevokeURL(String url) {
+        this.revokeURL = url;
+    }
+
+    /**
+     * Returns the URL used for token revocation.
+     * @return The url used for token revocation.
+     */
+    public String getRevokeURL() {
+        return this.revokeURL;
     }
 
     /**
@@ -391,6 +432,38 @@ public class BoxAPIConnection {
      */
     public void setMaxRequestAttempts(int attempts) {
         this.maxRequestAttempts = attempts;
+    }
+
+    /**
+     * Gets the connect timeout for this connection in milliseconds.
+     * @return the number of milliseconds to connect before timing out.
+     */
+    public int getConnectTimeout() {
+        return this.connectTimeout;
+    }
+
+    /**
+     * Sets the connect timeout for this connection.
+     * @param connectTimeout The number of milliseconds to wait for the connection to be established.
+     */
+    public void setConnectTimeout(int connectTimeout) {
+        this.connectTimeout = connectTimeout;
+    }
+
+    /**
+     * Gets the read timeout for this connection in milliseconds.
+     * @return the number of milliseconds to wait for bytes to be read before timing out.
+     */
+    public int getReadTimeout() {
+        return this.readTimeout;
+    }
+
+    /**
+     * Sets the read timeout for this connection.
+     * @param readTimeout The number of milliseconds to wait for bytes to be read.
+     */
+    public void setReadTimeout(int readTimeout) {
+        this.readTimeout = readTimeout;
     }
 
     /**
@@ -599,6 +672,95 @@ public class BoxAPIConnection {
     }
 
     /**
+     * Get a lower-scoped token restricted to a resource for the list of scopes that are passed.
+     * @param scopes the list of scopes to which the new token should be restricted for
+     * @param resource the resource for which the new token has to be obtained
+     * @return scopedToken which has access token and other details
+     */
+    public ScopedToken getLowerScopedToken(List<String> scopes, String resource) {
+        assert (scopes != null);
+        assert (scopes.size() > 0);
+        URL url = null;
+        try {
+            url = new URL(this.getTokenURL());
+        } catch (MalformedURLException e) {
+            assert false : "An invalid refresh URL indicates a bug in the SDK.";
+            throw new RuntimeException("An invalid refresh URL indicates a bug in the SDK.", e);
+        }
+
+        StringBuilder spaceSeparatedScopes = new StringBuilder();
+        for (int i = 0; i < scopes.size(); i++) {
+            spaceSeparatedScopes.append(scopes.get(i));
+            if (i < scopes.size() - 1) {
+                spaceSeparatedScopes.append(" ");
+            }
+        }
+
+        String urlParameters = null;
+
+        if (resource != null) {
+            //this.getAccessToken() ensures we have a valid access token
+            urlParameters = String.format("grant_type=urn:ietf:params:oauth:grant-type:token-exchange"
+                    + "&subject_token_type=urn:ietf:params:oauth:token-type:access_token&subject_token=%s"
+                    + "&scope=%s&resource=%s",
+                this.getAccessToken(), spaceSeparatedScopes, resource);
+        } else {
+            //this.getAccessToken() ensures we have a valid access token
+            urlParameters = String.format("grant_type=urn:ietf:params:oauth:grant-type:token-exchange"
+                    + "&subject_token_type=urn:ietf:params:oauth:token-type:access_token&subject_token=%s"
+                    + "&scope=%s",
+                this.getAccessToken(), spaceSeparatedScopes);
+        }
+
+        BoxAPIRequest request = new BoxAPIRequest(this, url, "POST");
+        request.shouldAuthenticate(false);
+        request.setBody(urlParameters);
+
+        String json;
+        try {
+            BoxJSONResponse response = (BoxJSONResponse) request.send();
+            json = response.getJSON();
+        } catch (BoxAPIException e) {
+            this.notifyError(e);
+            throw e;
+        }
+
+        JsonObject jsonObject = JsonObject.readFrom(json);
+        ScopedToken token = new ScopedToken(jsonObject);
+        token.setObtainedAt(System.currentTimeMillis());
+        token.setExpiresIn(jsonObject.get("expires_in").asLong() * 1000);
+        return token;
+    }
+
+    /**
+     * Revokes the tokens associated with this API connection.  This results in the connection no
+     * longer being able to make API calls until a fresh authorization is made by calling authenticate()
+     */
+    public void revokeToken() {
+
+        URL url = null;
+        try {
+            url = new URL(this.revokeURL);
+        } catch (MalformedURLException e) {
+            assert false : "An invalid refresh URL indicates a bug in the SDK.";
+            throw new RuntimeException("An invalid refresh URL indicates a bug in the SDK.", e);
+        }
+
+        String urlParameters = String.format("token=%s&client_id=%s&client_secret=%s",
+                this.accessToken, this.clientID, this.clientSecret);
+
+        BoxAPIRequest request = new BoxAPIRequest(this, url, "POST");
+        request.shouldAuthenticate(false);
+        request.setBody(urlParameters);
+
+        try {
+            request.send();
+        } catch (BoxAPIException e) {
+            throw e;
+        }
+    }
+
+    /**
      * Saves the state of this connection to a string so that it can be persisted and restored at a later time.
      *
      * <p>Note that proxy settings aren't automatically saved or restored. This is mainly due to security concerns
@@ -643,5 +805,69 @@ public class BoxAPIConnection {
 
     void unlockAccessToken() {
         this.refreshLock.readLock().unlock();
+    }
+
+    /**
+     * Get the value for the X-Box-UA header.
+     * @return the header value.
+     */
+    String getBoxUAHeader() {
+
+        return "agent=box-java-sdk/" + SDK_VERSION + "; env=Java/" + JAVA_VERSION;
+    }
+
+    /**
+     * Sets a custom header to be sent on all requests through this API connection.
+     * @param header the header name.
+     * @param value the header value.
+     */
+    public void setCustomHeader(String header, String value) {
+        this.customHeaders.put(header, value);
+    }
+
+    /**
+     * Removes a custom header, so it will no longer be sent on requests through this API connection.
+     * @param header the header name.
+     */
+    public void removeCustomHeader(String header) {
+        this.customHeaders.remove(header);
+    }
+
+    /**
+     * Suppresses email notifications from API actions.  This is typically used by security or admin applications
+     * to prevent spamming end users when doing automated processing on their content.
+     */
+    public void suppressNotifications() {
+        this.setCustomHeader(BOX_NOTIFICATIONS_HEADER, "off");
+    }
+
+    /**
+     * Re-enable email notifications from API actions if they have been suppressed.
+     * @see #suppressNotifications
+     */
+    public void enableNotifications() {
+        this.removeCustomHeader(BOX_NOTIFICATIONS_HEADER);
+    }
+
+    /**
+     * Set this API connection to make API calls on behalf of another users, impersonating them.  This
+     * functionality can only be used by admins and service accounts.
+     * @param userID the ID of the user to act as.
+     */
+    public void asUser(String userID) {
+        this.setCustomHeader(AS_USER_HEADER, userID);
+    }
+
+    /**
+     * Sets this API connection to make API calls on behalf of the user with whom the access token is associated.
+     * This undoes any previous calls to asUser().
+     * @see #asUser
+     */
+    public void asSelf() {
+        this.removeCustomHeader(AS_USER_HEADER);
+    }
+
+    Map<String, String> getHeaders() {
+        return this.customHeaders;
     }
 }

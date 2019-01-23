@@ -1,27 +1,33 @@
 Search
 ======
 
-* [Search a Folder and Its Children](#search-a-folder-and-its-children)
-* [Advanced Search](#advanced-search)
+Different examples of search which have been implemented in the example [SearchExamplesAsAppUser.java](https://github.com/box/box-java-sdk/blob/master/src/example/java/com/box/sdk/example/SearchExamplesAsAppUser.java)
 
-Basic Search
-------------
+For more information refer to the
+[Search API documentation](https://developer.box.com/v2.0/reference#searching-for-content).
 
-Calling [`search(String)`][search] on a folder will recursively search the
-folder and its children. To search the user's entire account, simply search
-their root folder.
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+
+
+- [Search](#search)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+
+Search
+------
+
+A search can be performed in your Box instance with specified starting position with
+[`searchRange(long offset, long limit, BoxSearchParameters queryParams)`][search]
+
+You can use the `limit` and `offset` parameters to page through the search results.
 
 ```java
-BoxFolder rootFolder = BoxFolder.getRootFolder(api);
-Iterable<BoxItem.Info> results = rootFolder.search("my query");
-for (BoxItem.Info result : results) {
-    // Do something with the search result.
-}
+// Find the first 10 files matching "taxes"
+long offsetValue = 0;
+long limitValue = 10;
+BoxSearch boxSearch = new BoxSearch(api);
+searchParams.setQuery("taxes");
+searchParams.setType("file");
+PartialCollection<BoxItem.Info> searchResults = boxSearch.searchRange(offsetValue, limitValue, searchParams);
 ```
-
-[search]: http://opensource.box.com/box-java-sdk/javadoc/com/box/sdk/BoxFolder.html#search(java.lang.String)
-
-Advanced Search
----------------
-
-Advanced is not yet implemented, but is coming soon.

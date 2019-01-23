@@ -8,11 +8,13 @@ import java.util.Date;
  */
 public class FileUploadParams {
     private InputStream content;
+    private UploadFileCallback uploadFileCallback;
     private String name;
     private Date created;
     private Date modified;
     private long size;
     private ProgressListener listener;
+    private String sha1;
 
     /**
      * Constructs a new FileUploadParams with default parameters.
@@ -34,6 +36,24 @@ public class FileUploadParams {
      */
     public FileUploadParams setContent(InputStream content) {
         this.content = content;
+        return this;
+    }
+
+    /**
+     * @return content writer callback.
+     */
+    public UploadFileCallback getUploadFileCallback() {
+        return this.uploadFileCallback;
+    }
+
+    /**
+     * Sets the content writer callback.
+     *
+     * @param uploadFileCallback callback called when file upload starts.
+     * @return         this FileUploadParams object for chaining.
+     */
+    public FileUploadParams setUploadFileCallback(UploadFileCallback uploadFileCallback) {
+        this.uploadFileCallback = uploadFileCallback;
         return this;
     }
 
@@ -125,5 +145,23 @@ public class FileUploadParams {
     public FileUploadParams setProgressListener(ProgressListener listener) {
         this.listener = listener;
         return this;
+    }
+
+    /**
+     * Set the SHA-1 hash of the file to ensure it is not corrupted during the upload.
+     * @param sha1 the SHA-1 hash of the file.
+     * @return     this FileUploadParams for chaining.
+     */
+    public FileUploadParams setSHA1(String sha1) {
+        this.sha1 = sha1;
+        return this;
+    }
+
+    /**
+     * Gets the file's SHA-1 hash.
+     * @return the file hash.
+     */
+    public String getSHA1() {
+        return this.sha1;
     }
 }

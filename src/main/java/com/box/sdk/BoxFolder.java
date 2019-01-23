@@ -1,5 +1,6 @@
 package com.box.sdk;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
@@ -7,7 +8,10 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
+import com.box.sdk.internal.utils.Parsers;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 import com.eclipsesource.json.JsonValue;
@@ -15,7 +19,7 @@ import com.eclipsesource.json.JsonValue;
 /**
  * Represents a folder on Box. This class can be used to iterate through a folder's contents, collaborate a folder with
  * another user or group, and perform other common folder operations (move, copy, delete, etc.).
- *
+ * <p>
  * <p>Unless otherwise noted, the methods in this class can throw an unchecked {@link BoxAPIException} (unchecked
  * meaning that the compiler won't force you to handle it) if an error occurs. If you wish to implement custom error
  * handling for errors related to the Box REST API, you should capture this exception explicitly.</p>
@@ -29,25 +33,62 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         "description", "size", "path_collection", "created_by", "modified_by", "trashed_at", "purged_at",
         "content_created_at", "content_modified_at", "owned_by", "shared_link", "folder_upload_email", "parent",
         "item_status", "item_collection", "sync_state", "has_collaborations", "permissions", "tags",
-        "can_non_owners_invite", "collections", "watermark_info"};
+        "can_non_owners_invite", "collections", "watermark_info", "metadata"};
 
-    private static final URLTemplate CREATE_FOLDER_URL = new URLTemplate("folders");
-    private static final URLTemplate CREATE_WEB_LINK_URL = new URLTemplate("web_links");
-    private static final URLTemplate COPY_FOLDER_URL = new URLTemplate("folders/%s/copy");
-    private static final URLTemplate DELETE_FOLDER_URL = new URLTemplate("folders/%s?recursive=%b");
-    private static final URLTemplate FOLDER_INFO_URL_TEMPLATE = new URLTemplate("folders/%s");
-    private static final URLTemplate UPLOAD_FILE_URL = new URLTemplate("files/content");
-    private static final URLTemplate ADD_COLLABORATION_URL = new URLTemplate("collaborations");
-    private static final URLTemplate GET_COLLABORATIONS_URL = new URLTemplate("folders/%s/collaborations");
-    private static final URLTemplate GET_ITEMS_URL = new URLTemplate("folders/%s/items/");
-    private static final URLTemplate SEARCH_URL_TEMPLATE = new URLTemplate("search");
-    private static final URLTemplate METADATA_URL_TEMPLATE = new URLTemplate("folders/%s/metadata/%s/%s");
-    private static final URLTemplate UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/upload-session");
+    /**
+     * Create Folder URL Template.
+     */
+    public static final URLTemplate CREATE_FOLDER_URL = new URLTemplate("folders");
+    /**
+     * Create Web Link URL Template.
+     */
+    public static final URLTemplate CREATE_WEB_LINK_URL = new URLTemplate("web_links");
+    /**
+     * Copy Folder URL Template.
+     */
+    public static final URLTemplate COPY_FOLDER_URL = new URLTemplate("folders/%s/copy");
+    /**
+     * Delete Folder URL Template.
+     */
+    public static final URLTemplate DELETE_FOLDER_URL = new URLTemplate("folders/%s?recursive=%b");
+    /**
+     * Folder Info URL Template.
+     */
+    public static final URLTemplate FOLDER_INFO_URL_TEMPLATE = new URLTemplate("folders/%s");
+    /**
+     * Upload File URL Template.
+     */
+    public static final URLTemplate UPLOAD_FILE_URL = new URLTemplate("files/content");
+    /**
+     * Add Collaboration URL Template.
+     */
+    public static final URLTemplate ADD_COLLABORATION_URL = new URLTemplate("collaborations");
+    /**
+     * Get Collaborations URL Template.
+     */
+    public static final URLTemplate GET_COLLABORATIONS_URL = new URLTemplate("folders/%s/collaborations");
+    /**
+     * Get Items URL Template.
+     */
+    public static final URLTemplate GET_ITEMS_URL = new URLTemplate("folders/%s/items/");
+    /**
+     * Search URL Template.
+     */
+    public static final URLTemplate SEARCH_URL_TEMPLATE = new URLTemplate("search");
+    /**
+     * Metadata URL Template.
+     */
+    public static final URLTemplate METADATA_URL_TEMPLATE = new URLTemplate("folders/%s/metadata/%s/%s");
+    /**
+     * Upload Session URL Template.
+     */
+    public static final URLTemplate UPLOAD_SESSION_URL_TEMPLATE = new URLTemplate("files/upload_sessions");
 
     /**
      * Constructs a BoxFolder for a folder with a given ID.
-     * @param  api the API connection to be used by the folder.
-     * @param  id  the ID of the folder.
+     *
+     * @param api the API connection to be used by the folder.
+     * @param id  the ID of the folder.
      */
     public BoxFolder(BoxAPIConnection api, String id) {
         super(api, id);
@@ -63,8 +104,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Gets the current user's root folder.
-     * @param  api the API connection to be used by the folder.
-     * @return     the user's root folder.
+     *
+     * @param api the API connection to be used by the folder.
+     * @return the user's root folder.
      */
     public static BoxFolder getRootFolder(BoxAPIConnection api) {
         return new BoxFolder(api, "0");
@@ -72,9 +114,10 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Adds a collaborator to this folder.
-     * @param  collaborator the collaborator to add.
-     * @param  role         the role of the collaborator.
-     * @return              info about the new collaboration.
+     *
+     * @param collaborator the collaborator to add.
+     * @param role         the role of the collaborator.
+     * @return info about the new collaboration.
      */
     public BoxCollaboration.Info collaborate(BoxCollaborator collaborator, BoxCollaboration.Role role) {
         JsonObject accessibleByField = new JsonObject();
@@ -88,55 +131,35 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
             throw new IllegalArgumentException("The given collaborator is of an unknown type.");
         }
 
-        return this.collaborate(accessibleByField, role);
+        return this.collaborate(accessibleByField, role, null, null);
     }
 
     /**
      * Adds a collaborator to this folder. An email will be sent to the collaborator if they don't already have a Box
      * account.
-     * @param  email the email address of the collaborator to add.
-     * @param  role  the role of the collaborator.
-     * @return       info about the new collaboration.
+     *
+     * @param email the email address of the collaborator to add.
+     * @param role  the role of the collaborator.
+     * @return info about the new collaboration.
      */
     public BoxCollaboration.Info collaborate(String email, BoxCollaboration.Role role) {
         JsonObject accessibleByField = new JsonObject();
         accessibleByField.add("login", email);
         accessibleByField.add("type", "user");
 
-        return this.collaborate(accessibleByField, role);
+        return this.collaborate(accessibleByField, role, null, null);
     }
 
-    private BoxCollaboration.Info collaborate(JsonObject accessibleByField, BoxCollaboration.Role role) {
-        BoxAPIConnection api = this.getAPI();
-        URL url = ADD_COLLABORATION_URL.build(api.getBaseURL());
-
-        JsonObject itemField = new JsonObject();
-        itemField.add("id", this.getID());
-        itemField.add("type", "folder");
-
-        JsonObject requestJSON = new JsonObject();
-        requestJSON.add("item", itemField);
-        requestJSON.add("accessible_by", accessibleByField);
-        requestJSON.add("role", role.toJSONString());
-
-        BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
-        request.setBody(requestJSON.toString());
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
-
-        BoxCollaboration newCollaboration = new BoxCollaboration(api, responseJSON.get("id").asString());
-        BoxCollaboration.Info info = newCollaboration.new Info(responseJSON);
-        return info;
-    }
     /**
      * Adds a collaborator to this folder.
-     * @param  collaborator the collaborator to add.
-     * @param  role         the role of the collaborator.
-     * @param  notify       the user/group should receive email notification of the collaboration or not.
-     * @param  canViewPath  the view path collaboration feature is enabled or not.
-     * View path collaborations allow the invitee to see the entire ancestral path to the associated folder.
-     * The user will not gain privileges in any ancestral folder.
-     * @return              info about the new collaboration.
+     *
+     * @param collaborator the collaborator to add.
+     * @param role         the role of the collaborator.
+     * @param notify       the user/group should receive email notification of the collaboration or not.
+     * @param canViewPath  the view path collaboration feature is enabled or not.
+     *                     View path collaborations allow the invitee to see the entire ancestral path to the associated
+     *                     folder. The user will not gain privileges in any ancestral folder.
+     * @return info about the new collaboration.
      */
     public BoxCollaboration.Info collaborate(BoxCollaborator collaborator, BoxCollaboration.Role role,
                                              Boolean notify, Boolean canViewPath) {
@@ -157,13 +180,14 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     /**
      * Adds a collaborator to this folder. An email will be sent to the collaborator if they don't already have a Box
      * account.
-     * @param  email the email address of the collaborator to add.
-     * @param  role  the role of the collaborator.
-     * @param  notify       the user/group should receive email notification of the collaboration or not.
-     * @param  canViewPath  the view path collaboration feature is enabled or not.
-     * View path collaborations allow the invitee to see the entire ancestral path to the associated folder.
-     * The user will not gain privileges in any ancestral folder.
-     * @return       info about the new collaboration.
+     *
+     * @param email       the email address of the collaborator to add.
+     * @param role        the role of the collaborator.
+     * @param notify      the user/group should receive email notification of the collaboration or not.
+     * @param canViewPath the view path collaboration feature is enabled or not.
+     *                    View path collaborations allow the invitee to see the entire ancestral path to the associated
+     *                    folder. The user will not gain privileges in any ancestral folder.
+     * @return info about the new collaboration.
      */
     public BoxCollaboration.Info collaborate(String email, BoxCollaboration.Role role,
                                              Boolean notify, Boolean canViewPath) {
@@ -176,38 +200,17 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     private BoxCollaboration.Info collaborate(JsonObject accessibleByField, BoxCollaboration.Role role,
                                               Boolean notify, Boolean canViewPath) {
-        BoxAPIConnection api = this.getAPI();
-        URL url = ADD_COLLABORATION_URL.build(api.getBaseURL());
 
         JsonObject itemField = new JsonObject();
         itemField.add("id", this.getID());
         itemField.add("type", "folder");
 
-        JsonObject requestJSON = new JsonObject();
-        requestJSON.add("item", itemField);
-        requestJSON.add("accessible_by", accessibleByField);
-        requestJSON.add("role", role.toJSONString());
-        if (canViewPath != null) {
-            requestJSON.add("can_view_path", canViewPath.booleanValue());
-        }
-
-        BoxJSONRequest request = new BoxJSONRequest(api, url, "POST");
-        if (notify != null) {
-            request.addHeader("notify", notify.toString());
-        }
-
-        request.setBody(requestJSON.toString());
-        BoxJSONResponse response = (BoxJSONResponse) request.send();
-        JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
-
-        BoxCollaboration newCollaboration = new BoxCollaboration(api, responseJSON.get("id").asString());
-        BoxCollaboration.Info info = newCollaboration.new Info(responseJSON);
-        return info;
+        return BoxCollaboration.create(this.getAPI(), accessibleByField, itemField, role, notify, canViewPath);
     }
 
     @Override
     public BoxSharedLink createSharedLink(BoxSharedLink.Access access, Date unshareDate,
-        BoxSharedLink.Permissions permissions) {
+                                          BoxSharedLink.Permissions permissions) {
 
         BoxSharedLink sharedLink = new BoxSharedLink(access, unshareDate, permissions);
         Info info = new Info();
@@ -218,7 +221,28 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     }
 
     /**
+     * Creates new SharedLink for a BoxFolder with a password.
+     *
+     * @param access        The access level of the shared link.
+     * @param unshareDate   A specified date to unshare the Box folder.
+     * @param permissions   The permissions to set on the shared link for the Box folder.
+     * @param password      Password set on the shared link to give access to the Box folder.
+     * @return information about the newly created shared link.
+     */
+    public BoxSharedLink createSharedLink(BoxSharedLink.Access access, Date unshareDate,
+                                          BoxSharedLink.Permissions permissions, String password) {
+
+        BoxSharedLink sharedLink = new BoxSharedLink(access, unshareDate, permissions, password);
+        Info info = new Info();
+        info.setSharedLink(sharedLink);
+
+        this.updateInfo(info);
+        return info.getSharedLink();
+    }
+
+    /**
      * Gets information about all of the collaborations for this folder.
+     *
      * @return a collection of information about the collaborations for this folder.
      */
     public Collection<BoxCollaboration.Info> getCollaborations() {
@@ -242,8 +266,6 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         return collaborations;
     }
 
-
-
     @Override
     public BoxFolder.Info getInfo() {
         URL url = FOLDER_INFO_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID());
@@ -264,6 +286,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Updates the information about this folder with any info fields that have been modified locally.
+     *
      * @param info the updated info.
      */
     public void updateInfo(BoxFolder.Info info) {
@@ -303,8 +326,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Creates a new child folder inside this folder.
-     * @param  name the new folder's name.
-     * @return      the created folder's info.
+     *
+     * @param name the new folder's name.
+     * @return the created folder's info.
      */
     public BoxFolder.Info createFolder(String name) {
         JsonObject parent = new JsonObject();
@@ -315,7 +339,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         newFolder.add("parent", parent);
 
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(), CREATE_FOLDER_URL.build(this.getAPI().getBaseURL()),
-            "POST");
+                "POST");
         request.setBody(newFolder.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
@@ -326,6 +350,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Deletes this folder, optionally recursively deleting all of its contents.
+     *
      * @param recursive true to recursively delete this folder's contents; otherwise false.
      */
     public void delete(boolean recursive) {
@@ -363,6 +388,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Renames this folder.
+     *
      * @param newName the new name of the folder.
      */
     public void rename(String newName) {
@@ -379,8 +405,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Checks if the file can be successfully uploaded by using the preflight check.
-     * @param  name        the name to give the uploaded file.
-     * @param  fileSize    the size of the file used for account capacity calculations.
+     *
+     * @param name     the name to give the uploaded file.
+     * @param fileSize the size of the file used for account capacity calculations.
      */
     public void canUpload(String name, long fileSize) {
         URL url = UPLOAD_FILE_URL.build(this.getAPI().getBaseURL());
@@ -402,38 +429,55 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Uploads a new file to this folder.
-     * @param  fileContent a stream containing the contents of the file to upload.
-     * @param  name        the name to give the uploaded file.
-     * @return             the uploaded file's info.
+     *
+     * @param fileContent a stream containing the contents of the file to upload.
+     * @param name        the name to give the uploaded file.
+     * @return the uploaded file's info.
      */
     public BoxFile.Info uploadFile(InputStream fileContent, String name) {
         FileUploadParams uploadInfo = new FileUploadParams()
-            .setContent(fileContent)
-            .setName(name);
+                .setContent(fileContent)
+                .setName(name);
+        return this.uploadFile(uploadInfo);
+    }
+
+    /**
+     * Uploads a new file to this folder.
+     *
+     * @param callback the callback which allows file content to be written on output stream.
+     * @param name     the name to give the uploaded file.
+     * @return the uploaded file's info.
+     */
+    public BoxFile.Info uploadFile(UploadFileCallback callback, String name) {
+        FileUploadParams uploadInfo = new FileUploadParams()
+                .setUploadFileCallback(callback)
+                .setName(name);
         return this.uploadFile(uploadInfo);
     }
 
     /**
      * Uploads a new file to this folder while reporting the progress to a ProgressListener.
-     * @param  fileContent a stream containing the contents of the file to upload.
-     * @param  name        the name to give the uploaded file.
-     * @param  fileSize    the size of the file used for determining the progress of the upload.
-     * @param  listener    a listener for monitoring the upload's progress.
-     * @return             the uploaded file's info.
+     *
+     * @param fileContent a stream containing the contents of the file to upload.
+     * @param name        the name to give the uploaded file.
+     * @param fileSize    the size of the file used for determining the progress of the upload.
+     * @param listener    a listener for monitoring the upload's progress.
+     * @return the uploaded file's info.
      */
     public BoxFile.Info uploadFile(InputStream fileContent, String name, long fileSize, ProgressListener listener) {
         FileUploadParams uploadInfo = new FileUploadParams()
-            .setContent(fileContent)
-            .setName(name)
-            .setSize(fileSize)
-            .setProgressListener(listener);
+                .setContent(fileContent)
+                .setName(name)
+                .setSize(fileSize)
+                .setProgressListener(listener);
         return this.uploadFile(uploadInfo);
     }
 
     /**
      * Uploads a new file to this folder with custom upload parameters.
-     * @param  uploadParams the custom upload parameters.
-     * @return              the uploaded file's info.
+     *
+     * @param uploadParams the custom upload parameters.
+     * @return the uploaded file's info.
      */
     public BoxFile.Info uploadFile(FileUploadParams uploadParams) {
         URL uploadURL = UPLOAD_FILE_URL.build(this.getAPI().getBaseUploadURL());
@@ -453,12 +497,18 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
             fieldJSON.add("content_modified_at", BoxDateFormat.format(uploadParams.getModified()));
         }
 
+        if (uploadParams.getSHA1() != null && !uploadParams.getSHA1().isEmpty()) {
+            request.setContentSHA1(uploadParams.getSHA1());
+        }
+
         request.putField("attributes", fieldJSON.toString());
 
         if (uploadParams.getSize() > 0) {
             request.setFile(uploadParams.getContent(), uploadParams.getName(), uploadParams.getSize());
-        } else {
+        } else if (uploadParams.getContent() != null) {
             request.setFile(uploadParams.getContent(), uploadParams.getName());
+        } else {
+            request.setUploadFileCallback(uploadParams.getUploadFileCallback(), uploadParams.getName());
         }
 
         BoxJSONResponse response;
@@ -478,28 +528,33 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Uploads a new weblink to this folder.
-     * @param  linkURL     the URL the weblink points to.
-     * @return             the uploaded weblink's info.
+     *
+     * @param linkURL the URL the weblink points to.
+     * @return the uploaded weblink's info.
      */
     public BoxWebLink.Info createWebLink(URL linkURL) {
-        return this.createWebLink(null, linkURL, null);
+        return this.createWebLink(null, linkURL,
+                null);
     }
 
     /**
      * Uploads a new weblink to this folder.
-     * @param  name        the filename for the weblink.
-     * @param  linkURL     the URL the weblink points to.
-     * @return             the uploaded weblink's info.
+     *
+     * @param name    the filename for the weblink.
+     * @param linkURL the URL the weblink points to.
+     * @return the uploaded weblink's info.
      */
     public BoxWebLink.Info createWebLink(String name, URL linkURL) {
-        return this.createWebLink(name, linkURL, null);
+        return this.createWebLink(name, linkURL,
+                null);
     }
 
     /**
      * Uploads a new weblink to this folder.
-     * @param  linkURL     the URL the weblink points to.
-     * @param  description the weblink's description.
-     * @return             the uploaded weblink's info.
+     *
+     * @param linkURL     the URL the weblink points to.
+     * @param description the weblink's description.
+     * @return the uploaded weblink's info.
      */
     public BoxWebLink.Info createWebLink(URL linkURL, String description) {
         return this.createWebLink(null, linkURL, description);
@@ -507,10 +562,11 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Uploads a new weblink to this folder.
-     * @param  name        the filename for the weblink.
-     * @param  linkURL     the URL the weblink points to.
-     * @param  description the weblink's description.
-     * @return             the uploaded weblink's info.
+     *
+     * @param name        the filename for the weblink.
+     * @param linkURL     the URL the weblink points to.
+     * @param description the weblink's description.
+     * @return the uploaded weblink's info.
      */
     public BoxWebLink.Info createWebLink(String name, URL linkURL, String description) {
         JsonObject parent = new JsonObject();
@@ -526,7 +582,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         }
 
         BoxJSONRequest request = new BoxJSONRequest(this.getAPI(),
-            CREATE_WEB_LINK_URL.build(this.getAPI().getBaseURL()), "POST");
+                CREATE_WEB_LINK_URL.build(this.getAPI().getBaseURL()), "POST");
         request.setBody(newWebLink.toString());
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject responseJSON = JsonObject.readFrom(response.getJSON());
@@ -538,6 +594,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     /**
      * Returns an iterable containing the items in this folder. Iterating over the iterable returned by this method is
      * equivalent to iterating over this BoxFolder directly.
+     *
      * @return an iterable containing the items in this folder.
      */
     public Iterable<BoxItem.Info> getChildren() {
@@ -547,8 +604,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     /**
      * Returns an iterable containing the items in this folder and specifies which child fields to retrieve from the
      * API.
-     * @param  fields the fields to retrieve.
-     * @return        an iterable containing the items in this folder.
+     *
+     * @param fields the fields to retrieve.
+     * @return an iterable containing the items in this folder.
      */
     public Iterable<BoxItem.Info> getChildren(final String... fields) {
         return new Iterable<BoxItem.Info>() {
@@ -563,15 +621,16 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Retrieves a specific range of child items in this folder.
-     * @param  offset the index of the first child item to retrieve.
-     * @param  limit  the maximum number of children to retrieve after the offset.
-     * @param  fields the fields to retrieve.
-     * @return        a partial collection containing the specified range of child items.
+     *
+     * @param offset the index of the first child item to retrieve.
+     * @param limit  the maximum number of children to retrieve after the offset.
+     * @param fields the fields to retrieve.
+     * @return a partial collection containing the specified range of child items.
      */
     public PartialCollection<BoxItem.Info> getChildrenRange(long offset, long limit, String... fields) {
         QueryStringBuilder builder = new QueryStringBuilder()
-            .appendParam("limit", limit)
-            .appendParam("offset", offset);
+                .appendParam("limit", limit)
+                .appendParam("offset", offset);
 
         if (fields.length > 0) {
             builder.appendParam("fields", fields).toString();
@@ -598,6 +657,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Returns an iterator over the items in this folder.
+     *
      * @return an iterator over the items in this folder.
      */
     @Override
@@ -609,10 +669,8 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     /**
      * Adds new {@link BoxWebHook} to this {@link BoxFolder}.
      *
-     * @param address
-     *            {@link BoxWebHook.Info#getAddress()}
-     * @param triggers
-     *            {@link BoxWebHook.Info#getTriggers()}
+     * @param address  {@link BoxWebHook.Info#getAddress()}
+     * @param triggers {@link BoxWebHook.Info#getTriggers()}
      * @return created {@link BoxWebHook.Info}
      */
     public BoxWebHook.Info addWebHook(URL address, BoxWebHook.Trigger... triggers) {
@@ -620,9 +678,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     }
 
     /**
-
      * Used to retrieve the watermark for the folder.
      * If the folder does not have a watermark applied to it, a 404 Not Found will be returned by API.
+     *
      * @param fields the fields to retrieve.
      * @return the watermark associated with the folder.
      */
@@ -632,6 +690,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Used to apply or update the watermark for the folder.
+     *
      * @return the watermark associated with the folder.
      */
     public BoxWatermark applyWatermark() {
@@ -659,7 +718,8 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     /**
      * This method is deprecated, please use the {@link BoxSearch} class instead.
      * Searches this folder and all descendant folders using a given queryPlease use BoxSearch Instead.
-     * @param  query the search query.
+     *
+     * @param query the search query.
      * @return an Iterable containing the search results.
      */
     @Deprecated
@@ -699,8 +759,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Creates global property metadata on this folder.
-     * @param   metadata    the new metadata values.
-     * @return              the metadata returned from the server.
+     *
+     * @param metadata the new metadata values.
+     * @return the metadata returned from the server.
      */
     public Metadata createMetadata(Metadata metadata) {
         return this.createMetadata(Metadata.DEFAULT_METADATA_TYPE, metadata);
@@ -708,9 +769,10 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Creates metadata on this folder using a specified template.
-     * @param   templateName    the name of the metadata template.
-     * @param   metadata        the new metadata values.
-     * @return                  the metadata returned from the server.
+     *
+     * @param templateName the name of the metadata template.
+     * @param metadata     the new metadata values.
+     * @return the metadata returned from the server.
      */
     public Metadata createMetadata(String templateName, Metadata metadata) {
         String scope = Metadata.scopeBasedOnType(templateName);
@@ -719,10 +781,11 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Creates metadata on this folder using a specified scope and template.
-     * @param   templateName    the name of the metadata template.
-     * @param   scope           the scope of the template (usually "global" or "enterprise").
-     * @param   metadata        the new metadata values.
-     * @return                  the metadata returned from the server.
+     *
+     * @param templateName the name of the metadata template.
+     * @param scope        the scope of the template (usually "global" or "enterprise").
+     * @param metadata     the new metadata values.
+     * @return the metadata returned from the server.
      */
     public Metadata createMetadata(String templateName, String scope, Metadata metadata) {
         URL url = METADATA_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID(), scope, templateName);
@@ -735,6 +798,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Gets the global properties metadata on this folder.
+     *
      * @return the metadata returned from the server.
      */
     public Metadata getMetadata() {
@@ -743,8 +807,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Gets the metadata on this folder associated with a specified template.
-     * @param   templateName    the metadata template type name.
-     * @return                  the metadata returned from the server.
+     *
+     * @param templateName the metadata template type name.
+     * @return the metadata returned from the server.
      */
     public Metadata getMetadata(String templateName) {
         String scope = Metadata.scopeBasedOnType(templateName);
@@ -753,9 +818,10 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Gets the metadata on this folder associated with a specified scope and template.
-     * @param   templateName    the metadata template type name.
-     * @param   scope           the scope of the template (usually "global" or "enterprise").
-     * @return                  the metadata returned from the server.
+     *
+     * @param templateName the metadata template type name.
+     * @param scope        the scope of the template (usually "global" or "enterprise").
+     * @return the metadata returned from the server.
      */
     public Metadata getMetadata(String templateName, String scope) {
         URL url = METADATA_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID(), scope, templateName);
@@ -766,12 +832,13 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Updates the global properties metadata on this folder.
-     * @param   metadata    the new metadata values.
-     * @return              the metadata returned from the server.
+     *
+     * @param metadata the new metadata values.
+     * @return the metadata returned from the server.
      */
     public Metadata updateMetadata(Metadata metadata) {
         URL url = METADATA_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID(), metadata.getScope(),
-            metadata.getTemplateName());
+                metadata.getTemplateName());
         BoxAPIRequest request = new BoxAPIRequest(this.getAPI(), url, "PUT");
         request.addHeader("Content-Type", "application/json-patch+json");
         request.setBody(metadata.getPatch());
@@ -788,6 +855,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Deletes the metadata on this folder associated with a specified template.
+     *
      * @param templateName the metadata template type name.
      */
     public void deleteMetadata(String templateName) {
@@ -797,8 +865,9 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Deletes the metadata on this folder associated with a specified scope and template.
-     * @param   templateName    the metadata template type name.
-     * @param   scope           the scope of the template (usually "global" or "enterprise").
+     *
+     * @param templateName the metadata template type name.
+     * @param scope        the scope of the template (usually "global" or "enterprise").
      */
     public void deleteMetadata(String templateName, String scope) {
         URL url = METADATA_URL_TEMPLATE.build(this.getAPI().getBaseURL(), this.getID(), scope, templateName);
@@ -810,6 +879,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
     /**
      * Creates an upload session to create a new file in chunks.
      * This will first verify that the file can be created and then open a session for uploading pieces of the file.
+     *
      * @param fileName the name of the file to be created
      * @param fileSize the size of the file that will be uploaded
      * @return the created upload session instance
@@ -828,7 +898,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         BoxJSONResponse response = (BoxJSONResponse) request.send();
         JsonObject jsonObject = JsonObject.readFrom(response.getJSON());
 
-        String sessionId = jsonObject.get("upload_session_id").asString();
+        String sessionId = jsonObject.get("id").asString();
         BoxFileUploadSession session = new BoxFileUploadSession(this.getAPI(), sessionId);
 
         return session.new Info(jsonObject);
@@ -836,15 +906,81 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
     /**
      * Creates a new file.
+     *
      * @param inputStream the stream instance that contains the data.
-     * @param fileName the name of the file to be created.
-     * @param fileSize the size of the file that will be uploaded.
+     * @param fileName    the name of the file to be created.
+     * @param fileSize    the size of the file that will be uploaded.
      * @return the created file instance.
+     * @throws InterruptedException when a thread execution is interrupted.
+     * @throws IOException          when reading a stream throws exception.
      */
-    public BoxFile.Info uploadLargeFile(InputStream inputStream, String fileName, long fileSize) {
+    public BoxFile.Info uploadLargeFile(InputStream inputStream, String fileName, long fileSize)
+            throws InterruptedException, IOException {
         URL url = UPLOAD_SESSION_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL());
+        return new LargeFileUpload().
+                upload(this.getAPI(), this.getID(), inputStream, url, fileName, fileSize);
+    }
 
-        return LargeFileUpload.upload(this.getAPI(), this.getID(), inputStream, url, fileName, fileSize);
+    /**
+     * Creates a new file using specified number of parallel http connections.
+     *
+     * @param inputStream          the stream instance that contains the data.
+     * @param fileName             the name of the file to be created.
+     * @param fileSize             the size of the file that will be uploaded.
+     * @param nParallelConnections number of parallel http connections to use
+     * @param timeOut              time to wait before killing the job
+     * @param unit                 time unit for the time wait value
+     * @return the created file instance.
+     * @throws InterruptedException when a thread execution is interrupted.
+     * @throws IOException          when reading a stream throws exception.
+     */
+    public BoxFile.Info uploadLargeFile(InputStream inputStream, String fileName, long fileSize,
+                                        int nParallelConnections, long timeOut, TimeUnit unit)
+            throws InterruptedException, IOException {
+        URL url = UPLOAD_SESSION_URL_TEMPLATE.build(this.getAPI().getBaseUploadURL());
+        return new LargeFileUpload(nParallelConnections, timeOut, unit).
+                upload(this.getAPI(), this.getID(), inputStream, url, fileName, fileSize);
+    }
+
+    /**
+     * Creates a new Metadata Cascade Policy on a folder.
+     *
+     * @param scope         the scope of the metadata cascade policy.
+     * @param templateKey   the key of the template.
+     * @return  information about the Metadata Cascade Policy.
+     */
+    public BoxMetadataCascadePolicy.Info addMetadataCascadePolicy(String scope, String templateKey) {
+
+        return BoxMetadataCascadePolicy.create(this.getAPI(), this.getID(), scope, templateKey);
+    }
+
+    /**
+     * Retrieves all Metadata Cascade Policies on a folder.
+     *
+     * @param fields            optional fields to retrieve for cascade policies.
+     * @return  the Iterable of Box Metadata Cascade Policies in your enterprise.
+     */
+    public Iterable<BoxMetadataCascadePolicy.Info> getMetadataCascadePolicies(String... fields) {
+        Iterable<BoxMetadataCascadePolicy.Info> cascadePoliciesInfo =
+                BoxMetadataCascadePolicy.getAll(this.getAPI(), this.getID(), fields);
+
+        return cascadePoliciesInfo;
+    }
+
+    /**
+     * Retrieves all Metadata Cascade Policies on a folder.
+     *
+     * @param enterpriseID      the ID of the enterprise to retrieve cascade policies for.
+     * @param limit             the number of entries of cascade policies to retrieve.
+     * @param fields            optional fields to retrieve for cascade policies.
+     * @return  the Iterable of Box Metadata Cascade Policies in your enterprise.
+     */
+    public Iterable<BoxMetadataCascadePolicy.Info> getMetadataCascadePolicies(String enterpriseID,
+                                                                      int limit, String... fields) {
+        Iterable<BoxMetadataCascadePolicy.Info> cascadePoliciesInfo =
+                BoxMetadataCascadePolicy.getAll(this.getAPI(), this.getID(), enterpriseID, limit, fields);
+
+        return cascadePoliciesInfo;
     }
 
     /**
@@ -857,6 +993,8 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         private EnumSet<Permission> permissions;
         private boolean canNonOwnersInvite;
         private boolean isWatermarked;
+        private boolean isCollaborationRestrictedToEnterprise;
+        private Map<String, Map<String, Metadata>> metadataMap;
 
         /**
          * Constructs an empty Info object.
@@ -867,7 +1005,8 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Constructs an Info object by parsing information from a JSON string.
-         * @param  json the JSON string to parse.
+         *
+         * @param json the JSON string to parse.
          */
         public Info(String json) {
             super(json);
@@ -875,14 +1014,16 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Constructs an Info object using an already parsed JSON object.
-         * @param  jsonObject the parsed JSON object.
+         *
+         * @param jsonObject the parsed JSON object.
          */
-        Info(JsonObject jsonObject) {
+        public Info(JsonObject jsonObject) {
             super(jsonObject);
         }
 
         /**
          * Gets the upload email for the folder.
+         *
          * @return the upload email for the folder.
          */
         public BoxUploadEmail getUploadEmail() {
@@ -891,6 +1032,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Sets the upload email for the folder.
+         *
          * @param uploadEmail the upload email for the folder.
          */
         public void setUploadEmail(BoxUploadEmail uploadEmail) {
@@ -910,6 +1052,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Gets whether or not the folder has any collaborations.
+         *
          * @return true if the folder has collaborations; otherwise false.
          */
         public boolean getHasCollaborations() {
@@ -918,6 +1061,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Gets the sync state of the folder.
+         *
          * @return the sync state of the folder.
          */
         public SyncState getSyncState() {
@@ -926,6 +1070,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Sets the sync state of the folder.
+         *
          * @param syncState the sync state of the folder.
          */
         public void setSyncState(SyncState syncState) {
@@ -935,6 +1080,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Gets the permissions that the current user has on the folder.
+         *
          * @return the permissions that the current user has on the folder.
          */
         public EnumSet<Permission> getPermissions() {
@@ -943,6 +1089,7 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
         /**
          * Gets whether or not the non-owners can invite collaborators to the folder.
+         *
          * @return [description]
          */
         public boolean getCanNonOwnersInvite() {
@@ -950,11 +1097,48 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
         }
 
         /**
+         * Gets whether future collaborations should be restricted to within the enterprise only.
+         *
+         * @return indicates whether collaboration is restricted to enterprise only.
+         */
+        public boolean getIsCollaborationRestrictedToEnterprise() {
+            return this.isCollaborationRestrictedToEnterprise;
+        }
+
+        /**
+         * Sets whether future collaborations should be restricted to within the enterprise only.
+         *
+         * @param isRestricted indicates whether there is collaboration restriction within enterprise.
+         */
+        public void setIsCollaborationRestrictedToEnterprise(boolean isRestricted) {
+            this.isCollaborationRestrictedToEnterprise = isRestricted;
+            this.addPendingChange("is_collaboration_restricted_to_enterprise", isRestricted);
+        }
+
+        /**
          * Gets flag indicating whether this file is Watermarked.
+         *
          * @return whether the file is watermarked or not
          */
         public boolean getIsWatermarked() {
             return this.isWatermarked;
+        }
+
+        /**
+         * Gets the metadata on this folder associated with a specified scope and template.
+         * Makes an attempt to get metadata that was retrieved using getInfo(String ...) method. If no result is found
+         * then makes an API call to get metadata
+         *
+         * @param templateName the metadata template type name.
+         * @param scope        the scope of the template (usually "global" or "enterprise").
+         * @return the metadata returned from the server.
+         */
+        public Metadata getMetadata(String templateName, String scope) {
+            try {
+                return this.metadataMap.get(scope).get(templateName);
+            } catch (NullPointerException e) {
+                return null;
+            }
         }
 
         @Override
@@ -986,9 +1170,15 @@ public class BoxFolder extends BoxItem implements Iterable<BoxItem.Info> {
 
             } else if (memberName.equals("can_non_owners_invite")) {
                 this.canNonOwnersInvite = value.asBoolean();
+            } else if (memberName.equals("is_collaboration_restricted_to_enterprise")) {
+                this.isCollaborationRestrictedToEnterprise = value.asBoolean();
+
             } else if (memberName.equals("watermark_info")) {
                 JsonObject jsonObject = value.asObject();
                 this.isWatermarked = jsonObject.get("is_watermarked").asBoolean();
+            } else if (memberName.equals("metadata")) {
+                JsonObject jsonObject = value.asObject();
+                this.metadataMap = Parsers.parseAndPopulateMetadataMap(jsonObject);
             }
         }
 

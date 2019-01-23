@@ -25,13 +25,15 @@ public abstract class BoxItem extends BoxResource {
         "version_number", "comment_count", "permissions", "tags", "lock", "extension", "is_package",
         "folder_upload_email", "item_collection", "sync_state", "has_collaborations", "can_non_owners_invite",
         "file_version", "collections"};
-
-    private static final URLTemplate SHARED_ITEM_URL_TEMPLATE = new URLTemplate("shared_items");
+    /**
+     * Shared Item URL Template.
+     */
+    public static final URLTemplate SHARED_ITEM_URL_TEMPLATE = new URLTemplate("shared_items");
 
     /**
      * Url template for operations with watermarks.
      */
-    private static final URLTemplate WATERMARK_URL_TEMPLATE = new URLTemplate("/watermark");
+    public static final URLTemplate WATERMARK_URL_TEMPLATE = new URLTemplate("/watermark");
 
     /**
      * Constructs a BoxItem for an item with a given ID.
@@ -195,6 +197,7 @@ public abstract class BoxItem extends BoxResource {
      * Contains information about a BoxItem.
      */
     public abstract class Info extends BoxResource.Info {
+        private String type;
         private String sequenceID;
         private String etag;
         private String name;
@@ -237,6 +240,14 @@ public abstract class BoxItem extends BoxResource {
          */
         Info(JsonObject jsonObject) {
             super(jsonObject);
+        }
+
+        /**
+         * Gets the item type.
+         * @return the item's type.
+         */
+        public String getType() {
+            return this.type;
         }
 
         /**
@@ -412,6 +423,19 @@ public abstract class BoxItem extends BoxResource {
         }
 
         /**
+         * Sets the tags for an item.
+         * @param tags The new tags for the item.
+         */
+        public void setTags(List<String> tags) {
+            this.tags = tags;
+            JsonArray tagsJSON = new JsonArray();
+            for (String tag : tags) {
+                tagsJSON.add(tag);
+            }
+            this.addPendingChange("tags", tagsJSON);
+        }
+
+        /**
          * Gets info about the parent folder of the item.
          * @return info about the parent folder of the item.
          */
@@ -465,6 +489,8 @@ public abstract class BoxItem extends BoxResource {
                 String memberName = member.getName();
                 if (memberName.equals("sequence_id")) {
                     this.sequenceID = value.asString();
+                } else if (memberName.equals("type")) {
+                    this.type = value.asString();
                 } else if (memberName.equals("etag")) {
                     this.etag = value.asString();
                 } else if (memberName.equals("name")) {

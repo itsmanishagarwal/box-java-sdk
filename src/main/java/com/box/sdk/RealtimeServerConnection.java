@@ -7,8 +7,8 @@ import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
 
 class RealtimeServerConnection {
-    private static final URLTemplate EVENT_URL = new URLTemplate("events");
-    private static final URLTemplate EVENT_POSITION_URL = new URLTemplate("events?stream_position=%s");
+    public static final URLTemplate EVENT_URL = new URLTemplate("events");
+    public static final URLTemplate EVENT_POSITION_URL = new URLTemplate("events?stream_position=%s");
 
     private final BoxAPIConnection api;
     private final int timeout;
@@ -50,7 +50,8 @@ class RealtimeServerConnection {
             this.retries--;
             try {
                 BoxAPIRequest request = new BoxAPIRequest(this.api, url, "GET");
-                request.setTimeout(this.timeout * 1000);
+                request.setConnectTimeout(this.timeout * 1000);
+                request.setReadTimeout(this.timeout * 1000);
                 this.response = (BoxJSONResponse) request.send();
                 JsonObject jsonObject = JsonObject.readFrom(this.response.getJSON());
                 String message = jsonObject.get("message").asString();

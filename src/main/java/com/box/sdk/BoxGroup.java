@@ -23,27 +23,27 @@ public class BoxGroup extends BoxCollaborator {
     /**
      * @see #getAllGroups(BoxAPIConnection, String...)
      */
-    private static final URLTemplate GROUPS_URL_TEMPLATE = new URLTemplate("groups");
+    public static final URLTemplate GROUPS_URL_TEMPLATE = new URLTemplate("groups");
 
     /**
      * @see #getInfo()
      */
-    private static final URLTemplate GROUP_URL_TEMPLATE = new URLTemplate("groups/%s");
+    public static final URLTemplate GROUP_URL_TEMPLATE = new URLTemplate("groups/%s");
 
     /**
      * @see #getMemberships()
      */
-    private static final URLTemplate MEMBERSHIPS_URL_TEMPLATE = new URLTemplate("groups/%s/memberships");
+    public static final URLTemplate MEMBERSHIPS_URL_TEMPLATE = new URLTemplate("groups/%s/memberships");
 
     /**
      * @see #addMembership(BoxUser)
      */
-    private static final URLTemplate ADD_MEMBERSHIP_URL_TEMPLATE = new URLTemplate("group_memberships");
+    public static final URLTemplate ADD_MEMBERSHIP_URL_TEMPLATE = new URLTemplate("group_memberships");
 
     /**
      * @see #getCollaborations()
      */
-    private static final URLTemplate COLLABORATIONS_URL_TEMPLATE = new URLTemplate("groups/%s/collaborations");
+    public static final URLTemplate COLLABORATIONS_URL_TEMPLATE = new URLTemplate("groups/%s/collaborations");
 
     /**
      * Constructs a BoxGroup for a group with a given ID.
@@ -132,6 +132,29 @@ public class BoxGroup extends BoxCollaborator {
         if (fields.length > 0) {
             builder.appendParam("fields", fields);
         }
+        return new Iterable<BoxGroup.Info>() {
+            public Iterator<BoxGroup.Info> iterator() {
+                URL url = GROUPS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), builder.toString());
+                return new BoxGroupIterator(api, url);
+            }
+        };
+    }
+
+    /**
+     * Gets an iterable of all the groups in the enterprise that are starting with the given name string.
+     * @param  api the API connection to be used when retrieving the groups.
+     * @param  name the name prefix of the groups. If the groups need to searched by full name that has spaces,
+     *              then the parameter string should have been wrapped with "".
+     * @return     an iterable containing info about all the groups.
+     */
+    public static Iterable<BoxGroup.Info> getAllGroupsByName(final BoxAPIConnection api, String name) {
+        final QueryStringBuilder builder = new QueryStringBuilder();
+        if (name == null || name.trim().isEmpty()) {
+            throw new BoxAPIException("Searching groups by name requires a non NULL or non empty name");
+        } else {
+            builder.appendParam("name", name);
+        }
+
         return new Iterable<BoxGroup.Info>() {
             public Iterator<BoxGroup.Info> iterator() {
                 URL url = GROUPS_URL_TEMPLATE.buildWithQuery(api.getBaseURL(), builder.toString());
